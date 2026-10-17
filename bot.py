@@ -24,13 +24,22 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 import openpyxl
 
-# --- RENDER PORT LISTENER ---
+# --- RENDER PORT LISTENER (HANDLES GET & HEAD FOR HEALTH CHECK) ---
 class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_HEAD(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/plain")
+        self.end_headers()
+
     def do_GET(self):
         self.send_response(200)
         self.send_header("Content-type", "text/plain")
         self.end_headers()
         self.wfile.write(b"Bot is healthy and live!")
+
+    def log_message(self, format, *args):
+        # কনসোল লগে যেন অপ্রয়োজনীয় পিং ট্রাফিক না আসে
+        return
 
 def run_http_server():
     port = int(os.environ.get("PORT", 8080))
@@ -53,39 +62,49 @@ db = None
 
 def init_firebase():
     global db
-    # Secret File বা লোকাল ফাইল চেক
-    if os.path.exists("serviceAccountKey.json"):
+    # ১. Render Secret File-এর আসল পাথ (/etc/secrets/) চেক
+    secret_paths = [
+        "/etc/secrets/serviceAccountKey.json",
+        "/etc/secrets/serviceAccountKey",
+        "serviceAccountKey.json"
+    ]
+    
+    loaded_file = None
+    for p in secret_paths:
+        if os.path.exists(p):
+            loaded_file = p
+            break
+
+    if loaded_file:
         try:
             if not firebase_admin._apps:
-                cred = credentials.Certificate("serviceAccountKey.json")
+                cred = credentials.Certificate(loaded_file)
                 firebase_admin.initialize_app(cred)
             db = firestore.client()
             init_settings()
-            logging.info("Firebase connected successfully from serviceAccountKey.json!")
+            logging.info(f"Firebase successfully connected from {loaded_file}!")
             return True
         except Exception as e:
-            logging.error(f"Firebase connection error: {e}")
-            db = None
-            return False
+            logging.error(f"Firebase connection error from file: {e}")
 
-    # Environment Variable চেক
+    # ২. Environment Variables চেক
     env_creds = os.environ.get("FIREBASE_CREDENTIALS")
     if env_creds:
         try:
             cred_dict = json.loads(env_creds)
+            if "private_key" in cred_dict:
+                cred_dict["private_key"] = cred_dict["private_key"].replace("\\n", "\n")
             if not firebase_admin._apps:
                 cred = credentials.Certificate(cred_dict)
                 firebase_admin.initialize_app(cred)
             db = firestore.client()
             init_settings()
-            logging.info("Firebase connected successfully from FIREBASE_CREDENTIALS!")
+            logging.info("Firebase connected from FIREBASE_CREDENTIALS environment variable!")
             return True
         except Exception as e:
             logging.error(f"Error parsing FIREBASE_CREDENTIALS: {e}")
-            db = None
-            return False
 
-    logging.warning("No Firebase credentials found! Bot running in offline mode.")
+    logging.warning("No valid Firebase credentials loaded. Waiting for config...")
     return False
 
 def init_settings():
@@ -212,7 +231,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # --- PROFILE UI ---
 async def my_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not db:
-        await update.message.reply_text("⚠️ System offline. Please upload valid Firebase credentials.")
+        await update.message.reply_text("⚠️ System offline. Please check database connection.")
         return
     user_id = str(update.effective_user.id)
     data = db.collection("users").document(user_id).get().to_dict() or {}
