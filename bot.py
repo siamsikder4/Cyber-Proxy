@@ -1,10 +1,9 @@
 import os
 import io
 import json
-import asyncio
 import logging
-from datetime import datetime
-from aiohttp import web
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from telegram import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
@@ -25,6 +24,24 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 import openpyxl
 
+# --- RENDER PORT BINDING (BACKGROUND THREAD) ---
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/plain")
+        self.end_headers()
+        self.wfile.write(b"Bot is healthy and running on Render!")
+
+def run_http_server():
+    port = int(os.environ.get("PORT", 8080))
+    server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
+    logging.info(f"Render HTTP Web Service listening on port {port}...")
+    server.serve_forever()
+
+# সার্ভার থ্রেড চালু করা (Render সাথে সাথে পোর্ট খুঁজে পাবে)
+http_thread = threading.Thread(target=run_http_server, daemon=True)
+http_thread.start()
+
 # --- CONFIGURATION ---
 BOT_TOKEN = "8868386011:AAEulcSqsAr2DxvBLRdMNANzDfCak5MN64Q"
 SUPER_ADMIN_ID = 8271633124
@@ -33,63 +50,43 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 
+# ফায়ারবেস কনফিগারেশন লোডার
 db = None
 
-# --- FIREBASE CONNECTOR FROM ENVIRONMENT VARIABLES ---
-def load_firebase():
+def init_firebase():
     global db
-    if db:
-        return True
-
+    # ১. যদি Environment Variables এ দেওয়া থাকে
     env_creds = os.environ.get("FIREBASE_CREDENTIALS")
-    if not env_creds:
-        logging.error("FIREBASE_CREDENTIALS environment variable is missing!")
-        return False
+    
+    if env_creds:
+        try:
+            cred_dict = json.loads(env_creds)
+            # যদি এস্কেপ ক্যারেক্টার থাকে তা ঠিক করা
+            if "private_key" in cred_dict:
+                cred_dict["private_key"] = cred_dict["private_key"].replace("\\n", "\n")
+            with open("serviceAccountKey.json", "w", encoding="utf-8") as f:
+                json.dump(cred_dict, f)
+        except Exception as e:
+            logging.error(f"Error parsing FIREBASE_CREDENTIALS: {e}")
 
-    try:
-        cred_dict = json.loads(env_creds)
-        # JWT সিগনেচার এরর এড়াতে \n ফরম্যাট ঠিক করা
-        if "private_key" in cred_dict:
-            cred_dict["private_key"] = cred_dict["private_key"].replace("\\n", "\n")
+    # ২. ফাইল থেকে লোড করা (JWT Signature এরর এড়ানোর সবচেয়ে নিরাপদ উপায়)
+    if os.path.exists("serviceAccountKey.json"):
+        try:
+            if not firebase_admin._apps:
+                cred = credentials.Certificate("serviceAccountKey.json")
+                firebase_admin.initialize_app(cred)
+            db = firestore.client()
+            logging.info("Firebase connected successfully!")
+            return True
+        except Exception as e:
+            logging.error(f"Firebase connection error: {e}")
+            db = None
+            return False
+    return False
 
-        if not firebase_admin._apps:
-            cred = credentials.Certificate(cred_dict)
-            firebase_admin.initialize_app(cred)
-        db = firestore.client()
-        init_settings()
-        logging.info("Firebase connected successfully via Environment Variable!")
-        return True
-    except Exception as e:
-        logging.error(f"Firebase connection error: {e}")
-        db = None
-        return False
+init_firebase()
 
-def init_settings():
-    global db
-    if not db:
-        return
-    try:
-        set_ref = db.collection("settings").document("payments")
-        if not set_ref.get().exists:
-            set_ref.set({
-                "bkash": "01XXXXXXXXX",
-                "nagad": "01XXXXXXXXX",
-                "rocket": "01XXXXXXXXX",
-                "binance": "1266509663",
-                "dollar_rate": 125.0
-            })
-
-        misc_ref = db.collection("settings").document("misc")
-        if not misc_ref.get().exists:
-            misc_ref.set({
-                "support_link": "https://t.me/your_admin",
-                "tutorial_link": "https://youtube.com",
-                "force_channel": ""
-            })
-    except Exception as e:
-        logging.error(f"Settings init error: {e}")
-
-# কনভার্সেশন স্টেটসমূহ
+# কনভার্সেশন স্টেটস
 (
     UPLOAD_STOCK,
     FIND_USER,
@@ -165,7 +162,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "username": user.username or "None",
                     "balance": 0.0,
                     "orders": 0,
-                    "joined": datetime.now().strftime("%Y-%m-%d"),
+                    "joined": "2026-10-08",
                     "is_banned": False,
                     "is_reseller": False
                 })
@@ -186,7 +183,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # --- PROFILE UI ---
 async def my_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not db:
-        await update.message.reply_text("⚠️ Database offline. Check Environment Variables.")
+        await update.message.reply_text("⚠️ System offline. Please check database connection.")
         return
     user_id = str(update.effective_user.id)
     data = db.collection("users").document(user_id).get().to_dict() or {}
@@ -226,7 +223,7 @@ async def user_tutorial(update: Update, context: ContextTypes.DEFAULT_TYPE):
         link = misc.get("tutorial_link", link)
     await update.message.reply_text(f"👑 *Tutorial & Help:*\n\nWatch our walkthrough:\n👉 {link}", parse_mode="Markdown")
 
-# --- DEPOSIT (SS / TRXID) ---
+# --- DEPOSIT SYSTEM (FIXED LOOP & PHOTO/SS) ---
 async def user_deposit_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not db:
         await update.message.reply_text("⚠️ Database is offline.")
@@ -249,7 +246,7 @@ async def deposit_method_picked(update: Update, context: ContextTypes.DEFAULT_TY
     context.user_data["dep_method"] = method
 
     settings = db.collection("settings").document("payments").get().to_dict() or {}
-    acc_num = settings.get(method, "Not Set")
+    acc_num = settings.get(method, "1266509663" if method == "binance" else "Not Set")
 
     msg = (
         f"💳 *Deposit via {method.upper()}*\n\n"
@@ -344,7 +341,7 @@ async def deposit_proof_received(update: Update, context: ContextTypes.DEFAULT_T
     )
     return ConversationHandler.END
 
-# --- STORE FLOW ---
+# --- STORE FLOW (DYNAMIC & COUNTER UI) ---
 async def buy_products_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not db:
         await update.message.reply_text("⚠️ Store is currently unavailable.")
@@ -1161,28 +1158,8 @@ async def cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def noop_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.answer()
 
-# --- RENDER WEB SERVICE PORT LISTENER ---
-async def health_check(request):
-    return web.Response(text="Bot is running fine on Render Web Service!")
-
-async def start_web_server():
-    port = int(os.environ.get("PORT", 8080))
-    server = web.Application()
-    server.router.add_get("/", health_check)
-    runner = web.AppRunner(server)
-    await runner.setup()
-    site = web.TCPSite(runner, "0.0.0.0", port)
-    await site.start()
-    logging.info(f"Render Web Service listener active on port {port}...")
-
 # --- MAIN RUNNER ---
-async def run_bot():
-    # Render-এর জন্য ওয়েব সার্ভার পোর্ট বাইন্ডিং
-    await start_web_server()
-
-    # ফায়ারবেস স্বয়ংক্রিয় কানেকশন
-    load_firebase()
-
+def main():
     app = Application.builder().token(BOT_TOKEN).build()
 
     # ১. Add Stock
@@ -1329,12 +1306,8 @@ async def run_bot():
     app.add_handler(CallbackQueryHandler(del_admin_cb, pattern=r"^deladm_"))
     app.add_handler(CallbackQueryHandler(handle_admin_manage_cb, pattern=r"^admin_del$"))
 
-    async with app:
-        await app.start()
-        await app.updater.start_polling()
-        logging.info("Bot is polling and Web Service is running...")
-        while True:
-            await asyncio.sleep(3600)
+    logging.info("Bot is polling and ready...")
+    app.run_polling()
 
 if __name__ == "__main__":
-    asyncio.run(run_bot())
+    main()
