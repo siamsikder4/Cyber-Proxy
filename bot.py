@@ -25,33 +25,68 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 import openpyxl
 
-# --- CONFIGURATION ---
+# --- কনফিগারেশন ---
 BOT_TOKEN = "8868386011:AAEulcSqsAr2DxvBLRdMNANzDfCak5MN64Q"
 SUPER_ADMIN_ID = 8271633124
+
+# স্থায়ীভাবে লোকাল স্টোরেজে সংরক্ষণের ফাইল পাথ
+LOCAL_STORE_FILE = "persistent_config.json"
+FIREBASE_KEY_PATH = "serviceAccountKey.json"
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 
-FIREBASE_KEY_PATH = "serviceAccountKey.json"
 db = None
 
-# --- FIREBASE CONNECTOR ---
+# --- ফায়ারবেস অটো লোডার (পরিবেশ বা স্থায়ী ফাইল থেকে) ---
 def load_firebase():
     global db
-    if os.path.exists(FIREBASE_KEY_PATH):
+    if db:
+        return True
+
+    cred_dict = None
+
+    # ১. এনভায়রনমেন্ট ভেরিয়েবল চেক
+    env_creds = os.environ.get("FIREBASE_CREDENTIALS")
+    if env_creds:
+        try:
+            cred_dict = json.loads(env_creds)
+        except Exception as e:
+            logging.error(f"Failed to parse FIREBASE_CREDENTIALS: {e}")
+
+    # ২. স্থায়ী সংরক্ষিত কনফিগ ফাইল চেক
+    if not cred_dict and os.path.exists(LOCAL_STORE_FILE):
+        try:
+            with open(LOCAL_STORE_FILE, "r", encoding="utf-8") as f:
+                saved = json.load(f)
+                cred_dict = saved.get("firebase_credentials")
+        except Exception as e:
+            logging.error(f"Failed to read {LOCAL_STORE_FILE}: {e}")
+
+    # ৩. সরাসরি ফাইল চেক
+    if not cred_dict and os.path.exists(FIREBASE_KEY_PATH):
+        try:
+            with open(FIREBASE_KEY_PATH, "r", encoding="utf-8") as f:
+                cred_dict = json.load(f)
+        except Exception as e:
+            logging.error(f"Failed to read {FIREBASE_KEY_PATH}: {e}")
+
+    # ফায়ারবেস ইনিশিয়ালাইজেশন
+    if cred_dict:
         try:
             if not firebase_admin._apps:
-                cred = credentials.Certificate(FIREBASE_KEY_PATH)
+                cred = credentials.Certificate(cred_dict)
                 firebase_admin.initialize_app(cred)
             db = firestore.client()
             init_settings()
-            logging.info("Firebase successfully connected!")
+            logging.info("Firebase authenticated successfully!")
             return True
         except Exception as e:
-            logging.error(f"Firebase connection error: {e}")
+            logging.error(f"Firebase connection failed: {e}")
             db = None
             return False
+
     return False
 
 def init_settings():
@@ -101,9 +136,8 @@ def init_settings():
     REDEEM_VOUCHER,
     ADD_ADMIN_ID,
     SETUP_SUPPORT,
-    RESELLER_UID,
-    CUSTOM_QTY_INPUT
-) = range(1, 23)
+    RESELLER_UID
+) = range(1, 22)
 
 def is_admin_sync(user_id: int) -> bool:
     if int(user_id) == int(SUPER_ADMIN_ID):
@@ -115,12 +149,12 @@ def is_admin_sync(user_id: int) -> bool:
             return False
     return False
 
-# --- KEYBOARDS ---
+# --- কীবোর্ড মেনু ---
 def get_user_menu(is_admin=False):
     kb = [
         [KeyboardButton("🛍️ Buy Product")],
         [KeyboardButton("👤 My Profile"), KeyboardButton("💳 Deposit")],
-        [KeyboardButton("🛡️ Get Code"), KeyboardButton("💬 Support")],
+        [KeyboardButton("🏷️ Get Code"), KeyboardButton("💬 Support")],
     ]
     if is_admin:
         kb.append([KeyboardButton("👑 Admin Panel")])
@@ -128,17 +162,17 @@ def get_user_menu(is_admin=False):
 
 def get_admin_menu():
     kb = [
-        [KeyboardButton("💼 Product Management"), KeyboardButton("🔥 Add Stock")],
-        [KeyboardButton("🌐 Live Stock"), KeyboardButton("👥 User Management")],
-        [KeyboardButton("🔔 Deposit Requests"), KeyboardButton("⚙️ Deposit History")],
+        [KeyboardButton("💼 Product Management"), KeyboardButton("📦 Add Stock")],
+        [KeyboardButton("📊 Live Stock"), KeyboardButton("👥 User Management")],
+        [KeyboardButton("🔔 Deposit Requests"), KeyboardButton("📜 Deposit History")],
         [KeyboardButton("📢 Broadcast"), KeyboardButton("🏷️ Voucher Management")],
-        [KeyboardButton("🧰 Support Setup"), KeyboardButton("💳 Payment Settings")],
+        [KeyboardButton("🛠️ Support Setup"), KeyboardButton("💳 Payment Settings")],
         [KeyboardButton("🔑 Admin Management"), KeyboardButton("🤝 Reseller Management")],
-        [KeyboardButton("🔥 Setup Firebase"), KeyboardButton("✅ User Menu")],
+        [KeyboardButton("⚙️ Setup Firebase"), KeyboardButton("🔙 User Menu")],
     ]
     return ReplyKeyboardMarkup(kb, resize_keyboard=True)
 
-# --- START ---
+# --- START COMMAND ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     is_admin = is_admin_sync(user.id)
@@ -167,8 +201,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not db and is_admin:
         msg = (
-            "⚠️ *Firebase Not Connected!*\n\n"
-            "Open *Admin Panel* -> *🔥 Setup Firebase* to send your JSON key file."
+            "⚠️ *Firebase Not Configured!*\n\n"
+            "Open *👑 Admin Panel* ❯ *⚙️ Setup Firebase* to upload your `serviceAccountKey.json` once.\n"
+            "It will stay saved permanently."
         )
         await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=get_user_menu(is_admin=True))
         return
@@ -215,19 +250,70 @@ async def user_support(update: Update, context: ContextTypes.DEFAULT_TYPE):
     kb = [[InlineKeyboardButton("🗣️ Contact Admin", url=link)]]
     await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
 
-# --- USER DEPOSIT WITH PHOTO / SS SUPPORT ---
+# --- স্থায়ী ফায়ারবেস আপলোড এবং সংরক্ষণ ---
+async def ask_firebase_json(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin_sync(update.effective_user.id):
+        return ConversationHandler.END
+
+    msg = (
+        "📁 *Permanent Firebase Setup*\n\n"
+        "আপনার `serviceAccountKey.json` ফাইলটি পাঠান।\n"
+        "এটি সেভ করার পর আপনাকে আর কোড আপডেট করলেও পুনরায় দিতে হবে না।"
+    )
+    await update.message.reply_text(msg, parse_mode="Markdown")
+    return UPLOAD_FIREBASE_JSON
+
+async def save_firebase_json(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    doc = update.message.document
+    if not doc or not doc.file_name.endswith(".json"):
+        await update.message.reply_text("❌ অনুগ্রহ করে সঠিক `.json` ফাইল পাঠান।")
+        return UPLOAD_FIREBASE_JSON
+
+    file = await doc.get_file()
+    file_bytes = await file.download_as_bytearray()
+    try:
+        data_dict = json.loads(file_bytes.decode("utf-8"))
+
+        # ১. লোকাল ফাইল হিসেবে সেভ
+        with open(FIREBASE_KEY_PATH, "w", encoding="utf-8") as f:
+            json.dump(data_dict, f)
+
+        # ২. স্থায়ী কনফিগ ফাইলে এনকোড করে রাখা
+        with open(LOCAL_STORE_FILE, "w", encoding="utf-8") as f:
+            json.dump({"firebase_credentials": data_dict}, f)
+
+        # ৩. কারেন্ট সেশনে রিলোড
+        if load_firebase():
+            # Render-এর জন্য এনভায়রনমেন্ট ভ্যালু টেক্সট তৈরি করে দেওয়া
+            compact_json = json.dumps(data_dict)
+            await update.message.reply_text(
+                "✅ *Firebase সফলভাবে যুক্ত ও সক্রিয় হয়েছে!*\n\n"
+                "📌 *স্থায়ী ব্যাকআপ পরামর্শ (Render Users):*\n"
+                "Render ড্যাশবোর্ডের Environment-এ `FIREBASE_CREDENTIALS` নামে ভ্যারিয়েবল যোগ করে নিচের মানটি দিলে গিটহাব কোড পুরোপুরি পাল্টে গেলেও এটি কখনো মুছবে না:\n\n"
+                f"`{compact_json[:100]}... (Saved Locally)`",
+                parse_mode="Markdown",
+                reply_markup=get_admin_menu()
+            )
+        else:
+            await update.message.reply_text("❌ ফাইলটি পাওয়া গেছে তবে Firebase অথেনটিকেশন ব্যর্থ হয়েছে।")
+    except Exception as e:
+        await update.message.reply_text(f"❌ JSON পার্সিং এরর: `{e}`", parse_mode="Markdown")
+
+    return ConversationHandler.END
+
+# --- DEPOSIT SYSTEM WITH SCREENSHOT & TRXID ---
 async def user_deposit_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not db:
-        await update.message.reply_text("⚠️ Database is offline.")
+        await update.message.reply_text("⚠️ ডাটাবেজ অফলাইনে রয়েছে।")
         return ConversationHandler.END
 
     settings = db.collection("settings").document("payments").get().to_dict() or {}
     kb = [
-        [InlineKeyboardButton("bKash", callback_data="paymeth_bkash"), InlineKeyboardButton("Nagad", callback_data="paymeth_nagad")],
-        [InlineKeyboardButton("Rocket", callback_data="paymeth_rocket"), InlineKeyboardButton("Binance", callback_data="paymeth_binance")],
+        [InlineKeyboardButton("💳 bKash", callback_data="paymeth_bkash"), InlineKeyboardButton("💳 Nagad", callback_data="paymeth_nagad")],
+        [InlineKeyboardButton("💳 Rocket", callback_data="paymeth_rocket"), InlineKeyboardButton("💳 Binance", callback_data="paymeth_binance")],
         [InlineKeyboardButton("❌ Cancel", callback_data="cancel_action")]
     ]
-    msg = "📱 *Deposit*\n\nSelect payment method:"
+    msg = "💳 *Deposit*\n\nপেমেন্ট মেথড বেছে নিন:"
     await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
     return DEPOSIT_AMOUNT
 
@@ -242,8 +328,8 @@ async def deposit_method_picked(update: Update, context: ContextTypes.DEFAULT_TY
 
     msg = (
         f"💳 *Deposit via {method.upper()}*\n\n"
-        f"Send Money / Transfer to: `{acc_num}`\n\n"
-        f"Enter the amount you sent (in BDT):"
+        f"টাকা পাঠানোর নাম্বার / Pay ID: `{acc_num}`\n\n"
+        f"আপনি কত টাকা পাঠিয়েছেন তা লিখুন (in BDT):"
     )
     await query.edit_message_text(msg, parse_mode="Markdown")
     return DEPOSIT_AMOUNT
@@ -255,11 +341,11 @@ async def deposit_amount_received(update: Update, context: ContextTypes.DEFAULT_
             raise ValueError()
         context.user_data["dep_amount"] = amt
     except Exception:
-        await update.message.reply_text("❌ Please enter a valid amount (e.g. 100):")
+        await update.message.reply_text("❌ অনুগ্রহ করে সঠিক টাকার পরিমাণ লিখুন (যেমন: 100):")
         return DEPOSIT_AMOUNT
 
     await update.message.reply_text(
-        "📸 Now send your *Transaction ID (TrxID)* OR upload the *Payment Screenshot (SS)*:",
+        "📸 এবার পেমেন্টের *Transaction ID (TrxID)* লিখে পাঠান অথবা পেমেন্ট স্লিপের *Screenshot (SS)* ছবি আকারে পাঠান:",
         parse_mode="Markdown"
     )
     return DEPOSIT_PROOF
@@ -278,7 +364,7 @@ async def deposit_proof_received(update: Update, context: ContextTypes.DEFAULT_T
         trx_text = update.message.text.strip()
 
     if not db:
-        await update.message.reply_text("⚠️ Database offline.")
+        await update.message.reply_text("⚠️ ডাটাবেজ অফলাইন।")
         return ConversationHandler.END
 
     req_ref = db.collection("deposit_requests").add({
@@ -326,23 +412,23 @@ async def deposit_proof_received(update: Update, context: ContextTypes.DEFAULT_T
         logging.error(f"Admin notify error: {e}")
 
     await update.message.reply_text(
-        "✅ *Deposit proof submitted!*\nAdmin will verify and add the balance within a few minutes.",
+        "✅ *ডিপোজিট রিকোয়েস্ট সফলভাবে জমা হয়েছে!*\nঅ্যাডমিন যাচাই করার পর আপনার ব্যালেন্সে যোগ হবে।",
         parse_mode="Markdown"
     )
     return ConversationHandler.END
 
-# --- BUYING WORKFLOW WITH DYNAMIC QUANTITY ---
+# --- BUYING FLOW & QUANTITY COUNTER ---
 async def buy_products_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not db:
-        await update.message.reply_text("⚠️ Store is currently unavailable.")
+        await update.message.reply_text("⚠️ শপ বর্তমানে অফলাইন।")
         return
 
-    # কেবলমাত্র অ্যাডমিন প্রোডাক্ট যোগ করলে ক্যাটাগরিগুলো ডাইনামিকালি লোড হবে
+    # অ্যাডমিন যোগ করার পরেই কেবল ক্যাটাগরিগুলো ডাইনামিকালি লোড হবে
     prods = db.collection("products").get()
     cats = sorted(list(set(p.to_dict().get("cat") for p in prods if p.to_dict().get("cat"))))
 
     if not cats:
-        await update.message.reply_text("🛍️ *Store is Empty!*\nNo products have been added yet.", parse_mode="Markdown")
+        await update.message.reply_text("🛍️ *দোকানটি বর্তমানে খালি!*\nকোনো প্রোডাক্ট এখনো যোগ করা হয়নি।", parse_mode="Markdown")
         return
 
     buttons = []
@@ -373,7 +459,7 @@ async def handle_buy_cat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for p in prods:
         p_data = p.to_dict()
         buttons.append([InlineKeyboardButton(f"🔹 {p_data['name']} ❯ {p_data['price']:.0f} BDT", callback_data=f"selpkg_{p.id}")])
-    buttons.append([InlineKeyboardButton("⬇️ Back to Categories", callback_data="back_to_cats")])
+    buttons.append([InlineKeyboardButton("🔙 Back to Categories", callback_data="back_to_cats")])
 
     await query.edit_message_text(f"🛒 *Category: {category}*\n\nSelect a product:", reply_markup=InlineKeyboardMarkup(buttons), parse_mode="Markdown")
 
@@ -384,19 +470,19 @@ def build_purchase_summary_kb(qty: int, prod_id: str):
             InlineKeyboardButton(f"{qty}", callback_data="noop"),
             InlineKeyboardButton("➕", callback_data=f"qty_inc_{prod_id}_{qty}")
         ],
-        [InlineKeyboardButton("Enter quantity", callback_data=f"qty_manual_{prod_id}")],
+        [InlineKeyboardButton("🔢 Enter quantity", callback_data=f"qty_manual_{prod_id}")],
         [
-            InlineKeyboardButton("Back", callback_data="back_to_cats"),
-            InlineKeyboardButton("Cancel", callback_data="cancel_action")
+            InlineKeyboardButton("🔙 Back", callback_data="back_to_cats"),
+            InlineKeyboardButton("❌ Cancel", callback_data="cancel_action")
         ],
-        [InlineKeyboardButton("Confirm", callback_data=f"buy_confirm_{prod_id}_{qty}")]
+        [InlineKeyboardButton("✅ Confirm", callback_data=f"buy_confirm_{prod_id}_{qty}")]
     ])
 
 async def show_purchase_summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     prod_id = query.data.replace("selpkg_", "")
-    
+
     prod = db.collection("products").document(prod_id).get().to_dict()
     if not prod:
         await query.edit_message_text("❌ Product not found.")
@@ -472,7 +558,6 @@ async def confirm_purchase(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer("❌ Insufficient balance! Please deposit first.", show_alert=True)
         return
 
-    # স্টক যাচাই ও ক্যাশিং
     stocks_ref = prod_ref.collection("stocks").limit(qty).get()
     if len(stocks_ref) < qty:
         await query.answer(f"❌ Not enough stock! Available: {len(stocks_ref)}", show_alert=True)
@@ -641,7 +726,7 @@ async def process_stock_file(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("❌ No items parsed from file.")
     return ConversationHandler.END
 
-# --- PRODUCT MANAGEMENT (DYNAMIC ADD / DELETE) ---
+# --- PRODUCT MANAGEMENT ---
 async def product_management_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin_sync(update.effective_user.id):
         return
@@ -762,36 +847,9 @@ async def handle_deposit_decide(update: Update, context: ContextTypes.DEFAULT_TY
     else:
         await query.edit_message_text(msg)
 
-# --- FIREBASE KEY SETUP VIA BOT ---
-async def ask_firebase_json(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin_sync(update.effective_user.id):
-        return ConversationHandler.END
-    await update.message.reply_text("📁 Please send your `serviceAccountKey.json` as a Telegram Document:")
-    return UPLOAD_FIREBASE_JSON
-
-async def save_firebase_json(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    doc = update.message.document
-    if not doc or not doc.file_name.endswith(".json"):
-        await update.message.reply_text("❌ Please send a valid JSON file.")
-        return UPLOAD_FIREBASE_JSON
-
-    file = await doc.get_file()
-    file_bytes = await file.download_as_bytearray()
-    try:
-        json.loads(file_bytes.decode("utf-8"))
-        with open(FIREBASE_KEY_PATH, "wb") as f:
-            f.write(file_bytes)
-        if load_firebase():
-            await update.message.reply_text("✅ Firebase initialized successfully!", reply_markup=get_admin_menu())
-        else:
-            await update.message.reply_text("❌ Failed to authenticate Firebase.")
-    except Exception as e:
-        await update.message.reply_text(f"❌ Error: {e}")
-    return ConversationHandler.END
-
 # --- CANCEL & NOOP ---
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Action canceled.", reply_markup=get_user_menu(is_admin_sync(update.effective_user.id)))
+    await update.message.reply_text("বাতিল করা হয়েছে।", reply_markup=get_user_menu(is_admin_sync(update.effective_user.id)))
     return ConversationHandler.END
 
 async def cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -802,7 +860,7 @@ async def cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def noop_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.answer()
 
-# --- RENDER WEB SERVICE LISTENER ---
+# --- RENDER WEB SERVICE PORT LISTENER ---
 async def health_check(request):
     return web.Response(text="Bot is running fine on Render Web Service!")
 
@@ -821,9 +879,9 @@ async def run_bot():
     load_firebase()
     app = Application.builder().token(BOT_TOKEN).build()
 
-    # Firebase Setup
+    # স্থায়ী Firebase Setup হ্যান্ডলার
     app.add_handler(ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex("^🔥 Setup Firebase$"), ask_firebase_json)],
+        entry_points=[MessageHandler(filters.Regex("^⚙️ Setup Firebase$"), ask_firebase_json)],
         states={UPLOAD_FIREBASE_JSON: [MessageHandler(filters.Document.ALL, save_firebase_json)]},
         fallbacks=[CommandHandler("cancel", cancel)],
     ))
@@ -873,10 +931,10 @@ async def run_bot():
     app.add_handler(MessageHandler(filters.Regex("^💬 Support$"), user_support))
     app.add_handler(MessageHandler(filters.Regex("^👑 Admin Panel$"), admin_panel))
     app.add_handler(MessageHandler(filters.Regex("^💼 Product Management$"), product_management_menu))
-    app.add_handler(MessageHandler(filters.Regex("^🌐 Live Stock$"), live_stock))
-    app.add_handler(MessageHandler(filters.Regex("^🔥 Add Stock$"), add_stock_menu))
+    app.add_handler(MessageHandler(filters.Regex("^📊 Live Stock$"), live_stock))
+    app.add_handler(MessageHandler(filters.Regex("^📦 Add Stock$"), add_stock_menu))
     app.add_handler(MessageHandler(filters.Regex("^🔔 Deposit Requests$"), show_deposit_requests))
-    app.add_handler(MessageHandler(filters.Regex("^✅ User Menu$"), start))
+    app.add_handler(MessageHandler(filters.Regex("^(🔙 User Menu|✅ User Menu)$"), start))
 
     # Inline Callbacks
     app.add_handler(CallbackQueryHandler(buy_products_menu, pattern=r"^back_to_cats$"))
@@ -888,7 +946,7 @@ async def run_bot():
     app.add_handler(CallbackQueryHandler(confirm_purchase, pattern=r"^buy_confirm_"))
     app.add_handler(CallbackQueryHandler(handle_deposit_decide, pattern=r"^dep(app|rej)_"))
 
-    # Render Port Binding
+    # Render Web Server পোর্ট বাইন্ডিং
     await start_web_server()
 
     async with app:
