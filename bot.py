@@ -24,8 +24,8 @@ from telegram.ext import (
 )
 
 # ----------------- CONFIGURATION -----------------
-BOT_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN_HERE"
-SUPER_ADMIN_ID = 7072296433  # Replace with primary Admin ID[span_4](start_span)[span_4](end_span)
+BOT_TOKEN = "8868386011:AAEulcSqsAr2DxvBLRdMNANzDfCak5MN64Q"
+SUPER_ADMIN_ID = 8271633124  # Replace with primary Admin ID[span_4](start_span)[span_4](end_span)
 FIREBASE_CREDENTIALS_PATH = "serviceAccountKey.json"
 DATABASE_URL = "https://YOUR_PROJECT_ID.firebaseio.com"
 
