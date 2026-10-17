@@ -1,7 +1,9 @@
 import os
 import io
 import json
+import asyncio
 import logging
+from aiohttp import web
 from telegram import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
@@ -23,8 +25,8 @@ from firebase_admin import credentials, firestore
 import openpyxl
 
 # --- CONFIGURATION ---
-BOT_TOKEN = "8868386011:AAEulcSqsAr2DxvBLRdMNANzDfCak5MN64Q"  # Put your bot token from @BotFather
-SUPER_ADMIN_ID = 8271633124                  # Put your Telegram numeric User ID
+BOT_TOKEN = "8868386011:AAEulcSqsAr2DxvBLRdMNANzDfCak5MN64Q"  # আপনার বট টোকেন
+SUPER_ADMIN_ID = 8271633124                  # আপনার টেলিগ্রাম আইডি (সংখ্যা)
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
@@ -42,7 +44,7 @@ def load_firebase():
                 cred = credentials.Certificate(FIREBASE_KEY_PATH)
                 firebase_admin.initialize_app(cred)
             db = firestore.client()
-            init_firestore_defaults()
+            init_defaults()
             logging.info("Firebase connected successfully!")
             return True
         except Exception as e:
@@ -51,15 +53,14 @@ def load_firebase():
             return False
     return False
 
-def init_firestore_defaults():
+def init_defaults():
     global db
     if not db:
         return
     try:
-        # Default Payment Details
-        settings_ref = db.collection("settings").document("payments")
-        if not settings_ref.get().exists:
-            settings_ref.set({
+        set_ref = db.collection("settings").document("payments")
+        if not set_ref.get().exists:
+            set_ref.set({
                 "bkash": "01XXXXXXXXX",
                 "nagad": "01XXXXXXXXX",
                 "rocket": "01XXXXXXXXX",
@@ -67,7 +68,6 @@ def init_firestore_defaults():
                 "dollar_rate": 120.0
             })
 
-        # Default Misc Details
         misc_ref = db.collection("settings").document("misc")
         if not misc_ref.get().exists:
             misc_ref.set({
@@ -76,10 +76,9 @@ def init_firestore_defaults():
                 "force_channel": ""
             })
 
-        # Default Catalog & Sample Stock
         prods = db.collection("products").limit(1).get()
         if len(prods) == 0:
-            default_items = [
+            defaults = [
                 {"cat": "Proxy~IP", "name": "1GB USA Proxy (1 Month)", "price": 75.0, "reseller": 70.0},
                 {"cat": "Proxy~IP", "name": "Rapid Proxy 200 MB", "price": 40.0, "reseller": 35.0},
                 {"cat": "Proxy~IP", "name": "Owl Proxy 200 MB", "price": 15.0, "reseller": 12.0},
@@ -88,10 +87,10 @@ def init_firestore_defaults():
                 {"cat": "FR_Outlook", "name": "FR Outlook Account", "price": 15.0, "reseller": 12.0},
                 {"cat": "VPN", "name": "NordVPN Premium (1 Month)", "price": 120.0, "reseller": 100.0},
             ]
-            for item in default_items:
+            for item in defaults:
                 db.collection("products").add(item)
     except Exception as e:
-        logging.error(f"Error seeding default firestore records: {e}")
+        logging.error(f"Error seeding default settings: {e}")
 
 # Conversation States
 (
@@ -119,7 +118,18 @@ def init_firestore_defaults():
     RESELLER_UID
 ) = range(1, 23)
 
-# --- KEYBOARDS ---
+# --- কড়া ও নিখুঁত অ্যাডমিন চেকার ---
+def is_admin_sync(user_id: int) -> bool:
+    if int(user_id) == int(SUPER_ADMIN_ID):
+        return True
+    if db:
+        try:
+            return db.collection("admins").document(str(user_id)).get().exists
+        except Exception:
+            return False
+    return False
+
+# --- কীবোর্ড জেনারেটর ---
 def get_user_menu(is_admin=False):
     kb = [
         [KeyboardButton("🎟️ Buy Products")],
@@ -144,21 +154,10 @@ def get_admin_menu():
     ]
     return ReplyKeyboardMarkup(kb, resize_keyboard=True)
 
-async def check_admin(user_id: int) -> bool:
-    if user_id == SUPER_ADMIN_ID:
-        return True
-    if db:
-        try:
-            doc = db.collection("admins").document(str(user_id)).get()
-            return doc.exists
-        except Exception:
-            return False
-    return False
-
 # --- START COMMAND ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    is_admin = await check_admin(user.id)
+    is_admin = is_admin_sync(user.id)
 
     if db:
         try:
@@ -175,32 +174,40 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 user_ref.update({"name": user.full_name, "username": user.username or "None"})
         except Exception as e:
-            logging.error(f"Error updating user document: {e}")
+            logging.error(f"Error registering user: {e}")
 
     if not db and is_admin:
-        banner = (
+        msg = (
             "⚠️ *Database Status: Offline / Not Connected*\n\n"
-            "Firebase is not configured yet. Please open the *Admin Panel* and tap "
+            "Firebase is not connected yet. Click *👑 Admin Panel* below and choose "
             "*🔥 Setup Firebase* to upload your `serviceAccountKey.json`."
         )
-        await update.message.reply_text(banner, parse_mode="Markdown", reply_markup=get_user_menu(is_admin))
+        await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=get_user_menu(is_admin=True))
         return
 
     welcome_msg = (
-        f"👋 *Welcome, {user.first_name}!*"
-        f"\n━━━━━━━━━━━━━━━━━━━━\n"
+        f"👋 *Welcome, {user.first_name}!*\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
         f"Select an option from the menu below to start shopping or managing your account."
     )
     await update.message.reply_text(welcome_msg, parse_mode="Markdown", reply_markup=get_user_menu(is_admin))
 
+# --- ADMIN PANEL ACCESS ---
+async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if not is_admin_sync(user_id):
+        await update.message.reply_text("⛔ *Access Denied:* You are not authorized to use the admin panel.", parse_mode="Markdown")
+        return
+    await update.message.reply_text("👑 *Admin Control Panel*", reply_markup=get_admin_menu(), parse_mode="Markdown")
+
 # --- FIREBASE SETUP VIA TELEGRAM ---
 async def ask_firebase_json(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != SUPER_ADMIN_ID:
+    if not is_admin_sync(update.effective_user.id):
         return ConversationHandler.END
 
     msg = (
-        "📁 *Upload Firebase Key:*\n\n"
-        "Please send your `serviceAccountKey.json` file as a Telegram Document attachment.\n"
+        "📁 *Upload Firebase Configuration*\n\n"
+        "Please send your `serviceAccountKey.json` file as a Telegram Document.\n"
         "Send /cancel to abort."
     )
     await update.message.reply_text(msg, parse_mode="Markdown")
@@ -209,7 +216,7 @@ async def ask_firebase_json(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def save_firebase_json(update: Update, context: ContextTypes.DEFAULT_TYPE):
     doc = update.message.document
     if not doc or not doc.file_name.endswith(".json"):
-        await update.message.reply_text("❌ Invalid format! Please send a `.json` file.")
+        await update.message.reply_text("❌ Please send a valid `.json` file.")
         return UPLOAD_FIREBASE_JSON
 
     file = await doc.get_file()
@@ -221,21 +228,21 @@ async def save_firebase_json(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
         if load_firebase():
             await update.message.reply_text(
-                "✅ *Firebase connected successfully!*\nDatabase is now active and ready.",
+                "✅ *Firebase connected successfully!*\nAll systems and database records are live.",
                 parse_mode="Markdown",
                 reply_markup=get_admin_menu()
             )
         else:
-            await update.message.reply_text("❌ File was saved, but failed to initialize Firebase.")
+            await update.message.reply_text("❌ File saved, but failed to connect to Firebase.")
     except Exception as e:
         await update.message.reply_text(f"❌ JSON error: `{e}`", parse_mode="Markdown")
 
     return ConversationHandler.END
 
-# --- USER PROFILE & FEATURES ---
+# --- USER PROFILE & LINKS ---
 async def my_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not db:
-        await update.message.reply_text("⚠️ System offline. Database is not connected.")
+        await update.message.reply_text("⚠️ Database offline. Please connect Firebase first.")
         return
     user_id = str(update.effective_user.id)
     data = db.collection("users").document(user_id).get().to_dict() or {}
@@ -247,13 +254,13 @@ async def my_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "╔═══════════════════════════╗\n"
         "       👤  *USER PROFILE*    \n"
         "╚═══════════════════════════╝\n"
-        f"• *Full Name:* {data.get('name', 'N/A')}\n"
+        f"• *Name:* {data.get('name', 'N/A')}\n"
         f"• *User ID:* `{user_id}`\n"
         f"• *Username:* @{data.get('username', 'None')}\n"
-        f"• *Account Type:* {'⭐ Reseller' if data.get('is_reseller') else 'Standard User'}\n"
+        f"• *Tier:* {'⭐ Reseller' if data.get('is_reseller') else 'Regular User'}\n"
         f"• *Balance:* `{balance:.2f} BDT` (~${usd:.2f} USD)\n"
         f"• *Total Orders:* `{data.get('orders', 0)}`\n"
-        f"• *Account Status:* {'✅ Active' if status == 'Active' else '🚫 Banned'}\n"
+        f"• *Status:* {'✅ Active' if status == 'Active' else '🚫 Banned'}\n"
         "───────────────────────────"
     )
     await update.message.reply_text(profile_card, parse_mode="Markdown")
@@ -263,19 +270,19 @@ async def user_support(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if db:
         misc = db.collection("settings").document("misc").get().to_dict() or {}
         link = misc.get("support_link", link)
-    await update.message.reply_text(f"💬 *Customer Support Desk:*\n\nReach our official support here:\n👉 {link}", parse_mode="Markdown")
+    await update.message.reply_text(f"💬 *Support Desk:*\n\nGet help directly here:\n👉 {link}", parse_mode="Markdown")
 
 async def user_tutorial(update: Update, context: ContextTypes.DEFAULT_TYPE):
     link = "https://youtube.com"
     if db:
         misc = db.collection("settings").document("misc").get().to_dict() or {}
         link = misc.get("tutorial_link", link)
-    await update.message.reply_text(f"👑 *Tutorial & Guidelines:*\n\nWatch our walkthrough video:\n👉 {link}", parse_mode="Markdown")
+    await update.message.reply_text(f"👑 *Tutorial & Help:*\n\nWatch our walkthrough:\n👉 {link}", parse_mode="Markdown")
 
-# --- USER DEPOSIT FLOW ---
+# --- USER DEPOSIT ---
 async def user_deposit_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not db:
-        await update.message.reply_text("⚠️ Database is offline. Please try again later.")
+        await update.message.reply_text("⚠️ Database offline. Please try again later.")
         return ConversationHandler.END
 
     settings = db.collection("settings").document("payments").get().to_dict() or {}
@@ -292,7 +299,7 @@ async def user_deposit_start(update: Update, context: ContextTypes.DEFAULT_TYPE)
         f"• *Binance Pay ID:* `{settings.get('binance')}`\n\n"
         f"💵 *Exchange Rate:* 1 USD = `{settings.get('dollar_rate', 120.0)} BDT`\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
-        "Please select your preferred payment method:"
+        "Select your deposit payment method:"
     )
     await update.message.reply_text(deposit_msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
     return DEPOSIT_AMOUNT
@@ -302,7 +309,7 @@ async def deposit_method_picked(update: Update, context: ContextTypes.DEFAULT_TY
     await query.answer()
     method = query.data.replace("paymeth_", "")
     context.user_data["dep_method"] = method
-    await query.edit_message_text(f"Selected: *{method.upper()}*\n\nPlease enter the amount you want to deposit (in BDT):", parse_mode="Markdown")
+    await query.edit_message_text(f"Selected: *{method.upper()}*\n\nEnter the amount in BDT you transferred:", parse_mode="Markdown")
     return DEPOSIT_AMOUNT
 
 async def deposit_amount_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -312,10 +319,10 @@ async def deposit_amount_received(update: Update, context: ContextTypes.DEFAULT_
             raise ValueError()
         context.user_data["dep_amount"] = amt
     except ValueError:
-        await update.message.reply_text("❌ Please enter a valid positive number:")
+        await update.message.reply_text("❌ Please enter a valid number (e.g. 500):")
         return DEPOSIT_AMOUNT
 
-    await update.message.reply_text("Now send your *Transaction ID (TrxID)* or Proof:", parse_mode="Markdown")
+    await update.message.reply_text("Now send your *Transaction ID (TrxID)*:", parse_mode="Markdown")
     return DEPOSIT_TRX
 
 async def deposit_trx_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -323,6 +330,10 @@ async def deposit_trx_received(update: Update, context: ContextTypes.DEFAULT_TYP
     uid = str(update.effective_user.id)
     amt = context.user_data.get("dep_amount")
     method = context.user_data.get("dep_method")
+
+    if not db:
+        await update.message.reply_text("⚠️ Database connection lost.")
+        return ConversationHandler.END
 
     req_ref = db.collection("deposit_requests").add({
         "user_id": uid,
@@ -346,7 +357,7 @@ async def deposit_trx_received(update: Update, context: ContextTypes.DEFAULT_TYP
             text=(
                 f"🔔 *NEW DEPOSIT REQUEST*\n"
                 f"━━━━━━━━━━━━━━━━━━━━\n"
-                f"• User ID: `{uid}`\n"
+                f"• User: `{uid}`\n"
                 f"• Amount: `{amt:.2f} BDT`\n"
                 f"• Method: `{method.upper()}`\n"
                 f"• TrxID: `{trx}`"
@@ -355,21 +366,18 @@ async def deposit_trx_received(update: Update, context: ContextTypes.DEFAULT_TYP
             reply_markup=InlineKeyboardMarkup(kb)
         )
     except Exception as e:
-        logging.error(f"Failed to notify admin: {e}")
+        logging.error(f"Deposit notification failed: {e}")
 
-    await update.message.reply_text(
-        "✅ *Deposit request submitted successfully!*\nYour balance will be updated automatically upon admin confirmation.",
-        parse_mode="Markdown"
-    )
+    await update.message.reply_text("✅ *Deposit submitted!* Admin will verify and credit your balance shortly.", parse_mode="Markdown")
     return ConversationHandler.END
 
-# --- REDEEM VOUCHER CODE ---
+# --- VOUCHER REDEEM ---
 async def get_code_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🏷️ *Enter your Voucher / Promo Code:*", parse_mode="Markdown")
+    await update.message.reply_text("🏷️ *Enter your Voucher Code:*", parse_mode="Markdown")
     return REDEEM_VOUCHER
 
 async def redeem_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    code = update.message.text.strip()
+    code = update.message.text.strip().upper()
     user_id = str(update.effective_user.id)
     if not db:
         await update.message.reply_text("⚠️ Database offline.")
@@ -377,25 +385,22 @@ async def redeem_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     doc = db.collection("vouchers").document(code).get()
     if not doc.exists:
-        await update.message.reply_text("❌ Invalid voucher code! Please double-check.")
+        await update.message.reply_text("❌ Invalid code.")
         return ConversationHandler.END
 
     v_data = doc.to_dict()
     if v_data.get("used"):
-        await update.message.reply_text("❌ This voucher code has already been redeemed.")
+        await update.message.reply_text("❌ Voucher already claimed.")
         return ConversationHandler.END
 
     amount = v_data.get("amount", 0.0)
     doc.reference.update({"used": True, "used_by": user_id})
     db.collection("users").document(user_id).update({"balance": firestore.Increment(amount)})
 
-    await update.message.reply_text(
-        f"🎉 *Redeemed Successfully!*\n`{amount:.2f} BDT` has been added to your balance.",
-        parse_mode="Markdown"
-    )
+    await update.message.reply_text(f"🎉 *Success!* `{amount:.2f} BDT` has been added to your balance.", parse_mode="Markdown")
     return ConversationHandler.END
 
-# --- PRODUCT STORE & PURCHASES ---
+# --- BUYING FLOW ---
 async def buy_products_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("📧 Hotmail", callback_data="buycat_Hotmail"),
@@ -404,7 +409,7 @@ async def buy_products_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
          InlineKeyboardButton("🔒 VPN", callback_data="buycat_VPN")],
         [InlineKeyboardButton("🌐 Proxy~IP", callback_data="buycat_Proxy~IP")]
     ]
-    await update.message.reply_text("🗂️ *Select a Category:*", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    await update.message.reply_text("🗂️ *Choose a Category:*", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
 async def handle_buy_cat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -417,7 +422,7 @@ async def handle_buy_cat(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     prods = db.collection("products").where("cat", "==", category).get()
     if not prods:
-        await query.edit_message_text(f"❌ No items found under *{category}*.", parse_mode="Markdown")
+        await query.edit_message_text(f"❌ No products under *{category}*.", parse_mode="Markdown")
         return
 
     buttons = []
@@ -427,7 +432,7 @@ async def handle_buy_cat(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = f"🌐 {p_data['name']} | {p_data['price']:.1f}৳ | Stock: {stock_count}"
         buttons.append([InlineKeyboardButton(text, callback_data=f"order_{p.id}")])
 
-    await query.edit_message_text(f"📦 *Available items under {category}:*", reply_markup=InlineKeyboardMarkup(buttons), parse_mode="Markdown")
+    await query.edit_message_text(f"📦 *Items under {category}:*", reply_markup=InlineKeyboardMarkup(buttons), parse_mode="Markdown")
 
 async def handle_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -441,23 +446,23 @@ async def handle_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_ref = db.collection("users").document(user_id)
     user_doc = user_ref.get().to_dict() or {}
     if user_doc.get("is_banned"):
-        await query.answer("🚫 Your account is banned.", show_alert=True)
+        await query.answer("🚫 Account banned.", show_alert=True)
         return
 
     prod_ref = db.collection("products").document(prod_id)
     prod_doc = prod_ref.get().to_dict()
     if not prod_doc:
-        await query.answer("❌ Item does not exist.", show_alert=True)
+        await query.answer("❌ Product not found.", show_alert=True)
         return
 
     stock_query = prod_ref.collection("stocks").limit(1).get()
     if not stock_query:
-        await query.answer("❌ Sorry, out of stock!", show_alert=True)
+        await query.answer("❌ Out of stock!", show_alert=True)
         return
 
     price = prod_doc["reseller"] if user_doc.get("is_reseller") else prod_doc["price"]
     if user_doc.get("balance", 0.0) < price:
-        await query.answer("❌ Insufficient balance! Please deposit funds first.", show_alert=True)
+        await query.answer("❌ Insufficient balance! Please deposit first.", show_alert=True)
         return
 
     stock_item = stock_query[0]
@@ -473,22 +478,17 @@ async def handle_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "╔═══════════════════════════╗\n"
         "   ✅  *PURCHASE SUCCESSFUL* \n"
         "╚═══════════════════════════╝\n"
-        f"• *Item:* {prod_doc['name']}\n"
-        f"• *Paid:* `{price:.2f} BDT`\n\n"
+        f"• *Product:* {prod_doc['name']}\n"
+        f"• *Charged:* `{price:.2f} BDT`\n\n"
         f"🔑 *Delivery Credentials:*\n`{stock_data}`\n"
         "───────────────────────────"
     )
     await query.edit_message_text(receipt, parse_mode="Markdown")
 
-# --- ADMIN PANEL ---
-async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await check_admin(update.effective_user.id):
-        return
-    await update.message.reply_text("👑 *Admin Control Panel*", reply_markup=get_admin_menu(), parse_mode="Markdown")
-
+# --- LIVE STOCK ---
 async def live_stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not db:
-        await update.message.reply_text("⚠️ Database offline. Please setup Firebase first.")
+        await update.message.reply_text("⚠️ Database offline. Setup Firebase first.")
         return
     prods = db.collection("products").get()
     msg = (
@@ -499,15 +499,15 @@ async def live_stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for p in prods:
         d = p.to_dict()
         count = len(p.reference.collection("stocks").get())
-        msg += f"📦 *{d['name']}*\n• Price: `{d['price']:.1f}৳` | Reseller: `{d.get('reseller', d['price']):.1f}৳`\n• Available Stock: `{count}`\n\n"
+        msg += f"📦 *{d['name']}*\n• Price: `{d['price']:.1f}৳` | Reseller: `{d.get('reseller', d['price']):.1f}৳`\n• Available: `{count}`\n\n"
     await update.message.reply_text(msg, parse_mode="Markdown")
 
-# --- STOCK UPLOAD (.TXT & .XLSX) ---
+# --- ADD STOCK ---
 async def add_stock_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await check_admin(update.effective_user.id):
+    if not is_admin_sync(update.effective_user.id):
         return
     if not db:
-        await update.message.reply_text("⚠️ Setup Firebase first.")
+        await update.message.reply_text("⚠️ Database offline.")
         return
     keyboard = [
         [InlineKeyboardButton("📧 Hotmail", callback_data="stockcat_Hotmail"),
@@ -552,7 +552,7 @@ async def process_stock_file(update: Update, context: ContextTypes.DEFAULT_TYPE)
     doc = update.message.document
     prod_id = context.user_data.get("upload_prod_id")
     if not prod_id or not db:
-        await update.message.reply_text("❌ Error: Product ID or DB missing.")
+        await update.message.reply_text("❌ Product ID or DB missing.")
         return ConversationHandler.END
 
     file = await doc.get_file()
@@ -581,26 +581,22 @@ async def process_stock_file(update: Update, context: ContextTypes.DEFAULT_TYPE)
             batch.set(ref, {"data": item})
         batch.commit()
 
-        await update.message.reply_text(
-            f"✅ Successfully loaded `{len(entries)}` items into stock!",
-            parse_mode="Markdown",
-            reply_markup=get_admin_menu()
-        )
+        await update.message.reply_text(f"✅ Loaded `{len(entries)}` items into stock!", parse_mode="Markdown", reply_markup=get_admin_menu())
     else:
-        await update.message.reply_text("❌ No valid lines found inside the document.")
+        await update.message.reply_text("❌ No data found.")
     return ConversationHandler.END
 
 # --- PRODUCT MANAGEMENT ---
 async def product_management_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await check_admin(update.effective_user.id):
+    if not is_admin_sync(update.effective_user.id):
         return
     kb = [
         [InlineKeyboardButton("👑 Add Product", callback_data="prodman_add"),
          InlineKeyboardButton("💰 Change Price", callback_data="prodman_chprice")],
         [InlineKeyboardButton("❌ Delete Product", callback_data="prodman_delprod"),
-         InlineKeyboardButton("🧨 Clear All Stock", callback_data="prodman_delstock")],
+         InlineKeyboardButton("🧨 Clear Stock", callback_data="prodman_delstock")],
     ]
-    await update.message.reply_text("⚙️ *Product Management Console:*", reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
+    await update.message.reply_text("⚙️ *Product Management Console*", reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
 
 async def handle_prodman_actions(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -617,23 +613,23 @@ async def handle_prodman_actions(update: Update, context: ContextTypes.DEFAULT_T
             [InlineKeyboardButton("📧 FR_Outlook", callback_data="setcat_FR_Outlook"), InlineKeyboardButton("🔒 VPN", callback_data="setcat_VPN")],
             [InlineKeyboardButton("🌐 Proxy~IP", callback_data="setcat_Proxy~IP")]
         ]
-        await query.edit_message_text("Select category for new product:", reply_markup=InlineKeyboardMarkup(kb))
+        await query.edit_message_text("Select category:", reply_markup=InlineKeyboardMarkup(kb))
         return ADD_PROD_CAT
 
     elif act == "delprod":
         prods = db.collection("products").get()
         kb = [[InlineKeyboardButton(f"❌ {p.to_dict()['name']}", callback_data=f"delp_{p.id}")] for p in prods]
-        await query.edit_message_text("Choose product to delete:", reply_markup=InlineKeyboardMarkup(kb))
+        await query.edit_message_text("Select product to delete:", reply_markup=InlineKeyboardMarkup(kb))
 
     elif act == "delstock":
         prods = db.collection("products").get()
         kb = [[InlineKeyboardButton(f"🧨 Empty {p.to_dict()['name']}", callback_data=f"clearstock_{p.id}")] for p in prods]
-        await query.edit_message_text("Choose product to wipe stock:", reply_markup=InlineKeyboardMarkup(kb))
+        await query.edit_message_text("Select product to wipe stock:", reply_markup=InlineKeyboardMarkup(kb))
 
     elif act == "chprice":
         prods = db.collection("products").get()
         kb = [[InlineKeyboardButton(f"✏️ {p.to_dict()['name']}", callback_data=f"chpr_{p.id}")] for p in prods]
-        await query.edit_message_text("Choose product to change pricing:", reply_markup=InlineKeyboardMarkup(kb))
+        await query.edit_message_text("Select product to modify price:", reply_markup=InlineKeyboardMarkup(kb))
         return CHANGE_PRICE_SELECT
 
 async def save_add_prod_cat(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -641,13 +637,12 @@ async def save_add_prod_cat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     cat = query.data.replace("setcat_", "")
     context.user_data["new_prod_cat"] = cat
-    await query.edit_message_text(f"Selected: *{cat}*\n\nSend Product Name:", parse_mode="Markdown")
+    await query.edit_message_text(f"Category: *{cat}*\n\nSend Product Name:", parse_mode="Markdown")
     return ADD_PROD_NAME
 
 async def save_add_prod_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    name = update.message.text.strip()
-    context.user_data["new_prod_name"] = name
-    await update.message.reply_text("Enter Regular Price and Reseller Price (space-separated, e.g. `50 45`):", parse_mode="Markdown")
+    context.user_data["new_prod_name"] = update.message.text.strip()
+    await update.message.reply_text("Enter Regular and Reseller price separated by space (e.g. `50 45`):", parse_mode="Markdown")
     return ADD_PROD_PRICE
 
 async def save_add_prod_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -656,15 +651,16 @@ async def save_add_prod_price(update: Update, context: ContextTypes.DEFAULT_TYPE
         price = float(parts[0])
         reseller = float(parts[1]) if len(parts) > 1 else price
     except Exception:
-        await update.message.reply_text("❌ Invalid price values! Send like: `50 45`")
+        await update.message.reply_text("❌ Send numbers only (e.g. `50 45`):")
         return ADD_PROD_PRICE
 
-    db.collection("products").add({
-        "cat": context.user_data.get("new_prod_cat"),
-        "name": context.user_data.get("new_prod_name"),
-        "price": price,
-        "reseller": reseller
-    })
+    if db:
+        db.collection("products").add({
+            "cat": context.user_data.get("new_prod_cat"),
+            "name": context.user_data.get("new_prod_name"),
+            "price": price,
+            "reseller": reseller
+        })
     await update.message.reply_text("✅ Product added successfully!", reply_markup=get_admin_menu())
     return ConversationHandler.END
 
@@ -674,7 +670,7 @@ async def delete_single_product(update: Update, context: ContextTypes.DEFAULT_TY
     pid = query.data.replace("delp_", "")
     if db:
         db.collection("products").document(pid).delete()
-    await query.edit_message_text("✅ Product permanently removed!")
+    await query.edit_message_text("✅ Product deleted.")
 
 async def clear_product_stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -686,7 +682,7 @@ async def clear_product_stock(update: Update, context: ContextTypes.DEFAULT_TYPE
         for s in stocks:
             batch.delete(s.reference)
         batch.commit()
-    await query.edit_message_text("✅ Stock successfully cleared!")
+    await query.edit_message_text("✅ Stock emptied.")
 
 async def select_prod_for_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -702,20 +698,20 @@ async def save_new_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
         price = float(parts[0])
         reseller = float(parts[1]) if len(parts) > 1 else price
     except Exception:
-        await update.message.reply_text("❌ Send numbers only (e.g. `65 60`):")
+        await update.message.reply_text("❌ Enter numbers only (e.g. `65 60`):")
         return CHANGE_PRICE_VAL
 
     pid = context.user_data.get("ch_prod_id")
     if db:
         db.collection("products").document(pid).update({"price": price, "reseller": reseller})
-    await update.message.reply_text("✅ Product pricing updated!", reply_markup=get_admin_menu())
+    await update.message.reply_text("✅ Price updated!", reply_markup=get_admin_menu())
     return ConversationHandler.END
 
-# --- USER MANAGEMENT (SEARCH / BAN / BALANCE / MESSAGE) ---
+# --- USER MANAGEMENT ---
 async def user_management(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await check_admin(update.effective_user.id):
+    if not is_admin_sync(update.effective_user.id):
         return
-    await update.message.reply_text("👥 Send User's Telegram ID or Username (without @):")
+    await update.message.reply_text("👥 Send User ID or Username (without @):")
     return FIND_USER
 
 async def search_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -763,7 +759,7 @@ async def search_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🚫 Ban / Unban", callback_data=f"uact_ban_{target_id}")],
         [InlineKeyboardButton("➕ Add Balance", callback_data=f"uact_add_{target_id}"),
          InlineKeyboardButton("➖ Cut Balance", callback_data=f"uact_cut_{target_id}")],
-        [InlineKeyboardButton("✉️ Direct Message", callback_data=f"uact_msg_{target_id}")]
+        [InlineKeyboardButton("✉️ Send Message", callback_data=f"uact_msg_{target_id}")]
     ]
     await update.message.reply_text(card, reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
     return ConversationHandler.END
@@ -782,7 +778,7 @@ async def user_actions_callback(update: Update, context: ContextTypes.DEFAULT_TY
         ref = db.collection("users").document(uid)
         curr = ref.get().to_dict().get("is_banned", False)
         ref.update({"is_banned": not curr})
-        await query.edit_message_text(f"✅ User ID `{uid}` Ban Status updated to: `{not curr}`", parse_mode="Markdown")
+        await query.edit_message_text(f"✅ User ID `{uid}` Ban Status: `{not curr}`", parse_mode="Markdown")
         return ConversationHandler.END
     elif action in ["add", "cut"]:
         context.user_data["bal_op"] = action
@@ -796,7 +792,7 @@ async def apply_user_balance(update: Update, context: ContextTypes.DEFAULT_TYPE)
     try:
         amt = float(update.message.text.strip())
     except ValueError:
-        await update.message.reply_text("❌ Enter numbers only:")
+        await update.message.reply_text("❌ Enter a valid number:")
         return USER_ACTION_AMOUNT
 
     uid = context.user_data.get("action_uid")
@@ -805,7 +801,7 @@ async def apply_user_balance(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     if db:
         db.collection("users").document(uid).update({"balance": firestore.Increment(delta)})
-    await update.message.reply_text(f"✅ User `{uid}` balance updated by `{delta:+.2f} BDT`.", parse_mode="Markdown", reply_markup=get_admin_menu())
+    await update.message.reply_text(f"✅ Balance updated by `{delta:+.2f} BDT`.", parse_mode="Markdown", reply_markup=get_admin_menu())
     return ConversationHandler.END
 
 async def send_user_direct_msg(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -817,14 +813,14 @@ async def send_user_direct_msg(update: Update, context: ContextTypes.DEFAULT_TYP
             text=f"💬 *Message from Admin:*\n\n{msg_text}",
             parse_mode="Markdown"
         )
-        await update.message.reply_text("✅ Message delivered!", reply_markup=get_admin_menu())
+        await update.message.reply_text("✅ Message sent!", reply_markup=get_admin_menu())
     except Exception as e:
         await update.message.reply_text(f"❌ Failed to deliver: {e}")
     return ConversationHandler.END
 
-# --- DEPOSIT MANAGEMENT (APPROVE / REJECT / HISTORY) ---
+# --- DEPOSIT APPROVAL / REJECT ---
 async def show_deposit_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await check_admin(update.effective_user.id):
+    if not is_admin_sync(update.effective_user.id):
         return
     if not db:
         await update.message.reply_text("⚠️ Database offline.")
@@ -832,7 +828,7 @@ async def show_deposit_requests(update: Update, context: ContextTypes.DEFAULT_TY
 
     reqs = db.collection("deposit_requests").where("status", "==", "pending").get()
     if not reqs:
-        await update.message.reply_text("✅ No pending deposit requests found.")
+        await update.message.reply_text("✅ No pending deposits.")
         return
 
     for r in reqs:
@@ -875,18 +871,18 @@ async def handle_deposit_decide(update: Update, context: ContextTypes.DEFAULT_TY
         try:
             await context.bot.send_message(
                 chat_id=int(data["user_id"]),
-                text=f"✅ *Deposit Confirmed!*\n`{data['amount']:.2f} BDT` has been credited to your account.",
+                text=f"✅ *Deposit Approved!*\n`{data['amount']:.2f} BDT` added to your balance.",
                 parse_mode="Markdown"
             )
         except Exception:
             pass
-        await query.edit_message_text(f"✅ Approved: `{data['amount']:.2f} BDT` for `{data['user_id']}`", parse_mode="Markdown")
+        await query.edit_message_text(f"✅ Approved: `{data['amount']:.2f} BDT`", parse_mode="Markdown")
     else:
         ref.update({"status": "rejected"})
         try:
             await context.bot.send_message(
                 chat_id=int(data["user_id"]),
-                text=f"❌ Your deposit request of `{data['amount']:.2f} BDT` has been rejected.",
+                text=f"❌ Your deposit request of `{data['amount']:.2f} BDT` was rejected.",
                 parse_mode="Markdown"
             )
         except Exception:
@@ -894,14 +890,14 @@ async def handle_deposit_decide(update: Update, context: ContextTypes.DEFAULT_TY
         await query.edit_message_text(f"❌ Rejected: `{data['amount']:.2f} BDT`", parse_mode="Markdown")
 
 async def deposit_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await check_admin(update.effective_user.id):
+    if not is_admin_sync(update.effective_user.id):
         return
     if not db:
         await update.message.reply_text("⚠️ Database offline.")
         return
     history = db.collection("deposit_requests").order_by("created_at", direction=firestore.Query.DESCENDING).limit(10).get()
     if not history:
-        await update.message.reply_text("No deposit records found.")
+        await update.message.reply_text("No deposit records.")
         return
     msg = "⚙️ *Recent Deposit History:*\n━━━━━━━━━━━━━━━━━━━━\n"
     for h in history:
@@ -911,7 +907,7 @@ async def deposit_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # --- PAYMENT SETTINGS ---
 async def payment_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await check_admin(update.effective_user.id):
+    if not is_admin_sync(update.effective_user.id):
         return
     if not db:
         await update.message.reply_text("⚠️ Database offline.")
@@ -948,17 +944,17 @@ async def save_payment_value(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     if db:
         db.collection("settings").document("payments").update({field: val})
-    await update.message.reply_text(f"✅ Setting `{field}` updated successfully!", parse_mode="Markdown", reply_markup=get_admin_menu())
+    await update.message.reply_text(f"✅ Updated `{field}`!", parse_mode="Markdown", reply_markup=get_admin_menu())
     return ConversationHandler.END
 
-# --- BROADCAST (SAFE FROM NONETYPE ERRORS) ---
+# --- BROADCAST ---
 async def start_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await check_admin(update.effective_user.id):
+    if not is_admin_sync(update.effective_user.id):
         return
     if not db:
-        await update.message.reply_text("⚠️ Database offline. Setup Firebase before broadcasting.")
+        await update.message.reply_text("⚠️ Database is offline. Please setup Firebase first.")
         return ConversationHandler.END
-    await update.message.reply_text("📢 *Send the broadcast message you want to blast to all users:*", parse_mode="Markdown")
+    await update.message.reply_text("📢 *Send the broadcast message to send to all users:*", parse_mode="Markdown")
     return BROADCAST_MSG
 
 async def send_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -974,7 +970,7 @@ async def send_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
 
     success, failed = 0, 0
-    status_msg = await update.message.reply_text("🚀 Broadcasting in progress...")
+    status_msg = await update.message.reply_text("🚀 Broadcasting...")
     for u in users:
         try:
             await context.bot.send_message(chat_id=int(u.id), text=msg)
@@ -982,22 +978,22 @@ async def send_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             failed += 1
 
-    await status_msg.edit_text(f"📢 *Broadcast Report:*\n\n✅ Delivered: `{success}`\n❌ Failed: `{failed}`", parse_mode="Markdown")
+    await status_msg.edit_text(f"📢 *Broadcast Report:*\n\n✅ Sent: `{success}`\n❌ Failed: `{failed}`", parse_mode="Markdown")
     return ConversationHandler.END
 
-# --- VOUCHER GENERATOR ---
+# --- VOUCHER CREATION ---
 async def voucher_management(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await check_admin(update.effective_user.id):
+    if not is_admin_sync(update.effective_user.id):
         return
     if not db:
         await update.message.reply_text("⚠️ Database offline.")
         return ConversationHandler.END
-    await update.message.reply_text("Enter new Promo/Voucher Code (e.g. `WELCOME50`):", parse_mode="Markdown")
+    await update.message.reply_text("Enter new Voucher/Promo Code (e.g. `OFFER50`):", parse_mode="Markdown")
     return ADD_VOUCHER_CODE
 
 async def get_v_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["new_v_code"] = update.message.text.strip().upper()
-    await update.message.reply_text("Enter the balance amount to reward upon redeeming (BDT):", parse_mode="Markdown")
+    await update.message.reply_text("Enter reward amount in BDT:")
     return ADD_VOUCHER_BAL
 
 async def get_v_bal(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1019,26 +1015,26 @@ async def get_v_bal(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # --- ADMIN DELEGATION ---
 async def admin_management_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != SUPER_ADMIN_ID:
+    if not is_admin_sync(update.effective_user.id):
         return
     kb = [
         [InlineKeyboardButton("👑 Add Admin", callback_data="admin_add")],
         [InlineKeyboardButton("❌ Remove Admin", callback_data="admin_del")]
     ]
-    await update.message.reply_text("👑 *Admin Authorization Panel*", reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
+    await update.message.reply_text("👑 *Admin Management*", reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
 
 async def handle_admin_manage_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     act = query.data.replace("admin_", "")
     if act == "add":
-        await query.edit_message_text("Send the Telegram Numeric User ID of the new admin:")
+        await query.edit_message_text("Send Telegram Numeric User ID of new admin:")
         return ADD_ADMIN_ID
     else:
         if db:
             admins = db.collection("admins").get()
             kb = [[InlineKeyboardButton(f"❌ {a.id}", callback_data=f"deladm_{a.id}")] for a in admins]
-            await query.edit_message_text("Select an admin to revoke access:", reply_markup=InlineKeyboardMarkup(kb))
+            await query.edit_message_text("Select admin to remove:", reply_markup=InlineKeyboardMarkup(kb))
 
 async def save_new_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     aid = update.message.text.strip()
@@ -1047,7 +1043,7 @@ async def save_new_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ADD_ADMIN_ID
     if db:
         db.collection("admins").document(aid).set({"role": "admin"})
-    await update.message.reply_text(f"✅ ID `{aid}` has been granted admin privileges!", parse_mode="Markdown", reply_markup=get_admin_menu())
+    await update.message.reply_text(f"✅ User ID `{aid}` is now an admin!", parse_mode="Markdown", reply_markup=get_admin_menu())
     return ConversationHandler.END
 
 async def del_admin_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1056,13 +1052,13 @@ async def del_admin_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     aid = query.data.replace("deladm_", "")
     if db:
         db.collection("admins").document(aid).delete()
-    await query.edit_message_text(f"✅ Admin `{aid}` revoked successfully!")
+    await query.edit_message_text(f"✅ Admin `{aid}` removed!")
 
 # --- RESELLER, SUPPORT, TUTORIAL, FORCE JOIN ---
 async def reseller_management(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await check_admin(update.effective_user.id):
+    if not is_admin_sync(update.effective_user.id):
         return
-    await update.message.reply_text("Send User ID to toggle Reseller role:")
+    await update.message.reply_text("Send User ID to toggle Reseller status:")
     return RESELLER_UID
 
 async def save_reseller_toggle(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1077,13 +1073,13 @@ async def save_reseller_toggle(update: Update, context: ContextTypes.DEFAULT_TYP
 
     status = not doc.to_dict().get("is_reseller", False)
     ref.update({"is_reseller": status})
-    await update.message.reply_text(f"✅ User `{uid}` Reseller Status: `{'Active' if status else 'Revoked'}`", parse_mode="Markdown", reply_markup=get_admin_menu())
+    await update.message.reply_text(f"✅ Reseller status for `{uid}`: `{'Active' if status else 'Revoked'}`", parse_mode="Markdown", reply_markup=get_admin_menu())
     return ConversationHandler.END
 
 async def prompt_support_setup(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await check_admin(update.effective_user.id):
+    if not is_admin_sync(update.effective_user.id):
         return
-    await update.message.reply_text("Send Support URL or @handle:")
+    await update.message.reply_text("Send Support URL or username:")
     return SETUP_SUPPORT
 
 async def save_support_setup(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1094,9 +1090,9 @@ async def save_support_setup(update: Update, context: ContextTypes.DEFAULT_TYPE)
     return ConversationHandler.END
 
 async def prompt_tutorial_setup(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await check_admin(update.effective_user.id):
+    if not is_admin_sync(update.effective_user.id):
         return
-    await update.message.reply_text("Send Tutorial Video URL:")
+    await update.message.reply_text("Send Tutorial URL:")
     return SETUP_TUTORIAL
 
 async def save_tutorial_setup(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1107,9 +1103,9 @@ async def save_tutorial_setup(update: Update, context: ContextTypes.DEFAULT_TYPE
     return ConversationHandler.END
 
 async def prompt_force_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await check_admin(update.effective_user.id):
+    if not is_admin_sync(update.effective_user.id):
         return
-    await update.message.reply_text("Send Force-Join Channel Username (e.g. `@MyChannel`):")
+    await update.message.reply_text("Send Force Join channel username (e.g. `@MyChannel`):")
     return SETUP_FORCE_JOIN
 
 async def save_force_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1119,31 +1115,50 @@ async def save_force_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("✅ Force Join Channel updated!", reply_markup=get_admin_menu())
     return ConversationHandler.END
 
-# --- CANCEL CONVERSATION ---
+# --- CANCEL & ERROR HANDLER ---
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Action canceled.", reply_markup=get_admin_menu())
     return ConversationHandler.END
 
-# --- MAIN EXECUTION DISPATCHER ---
-def main():
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    logging.error(msg="Exception while handling an update:", exc_info=context.error)
+
+# --- RENDER WEB SERVICE HEALTH CHECK SERVER ---
+async def health_check(request):
+    return web.Response(text="Bot is running and healthy!")
+
+async def start_web_server():
+    port = int(os.environ.get("PORT", 8080))
+    server = web.Application()
+    server.router.add_get("/", health_check)
+    runner = web.AppRunner(server)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    logging.info(f"Render Web Service listener running on port {port}...")
+
+# --- MAIN RUNNER (CONCURRENT POLLING + WEB SERVER) ---
+async def run_bot():
     load_firebase()
     app = Application.builder().token(BOT_TOKEN).build()
 
-    # Conversation: Firebase JSON Setup
+    app.add_error_handler(error_handler)
+
+    # Setup Firebase JSON
     app.add_handler(ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^🔥 Setup Firebase$"), ask_firebase_json)],
         states={UPLOAD_FIREBASE_JSON: [MessageHandler(filters.Document.ALL, save_firebase_json)]},
         fallbacks=[CommandHandler("cancel", cancel)],
     ))
 
-    # Conversation: Stock Upload
+    # Add Stock
     app.add_handler(ConversationHandler(
         entry_points=[CallbackQueryHandler(handle_prepare_upload, pattern=r"^upstock_")],
         states={UPLOAD_STOCK: [MessageHandler(filters.Document.ALL, process_stock_file)]},
         fallbacks=[CommandHandler("cancel", cancel)],
     ))
 
-    # Conversation: User Management
+    # User Management
     app.add_handler(ConversationHandler(
         entry_points=[
             MessageHandler(filters.Regex("^👥 User Management$"), user_management),
@@ -1157,14 +1172,14 @@ def main():
         fallbacks=[CommandHandler("cancel", cancel)],
     ))
 
-    # Conversation: Payment Settings
+    # Payment Settings
     app.add_handler(ConversationHandler(
         entry_points=[CallbackQueryHandler(handle_payment_edit, pattern=r"^payedit_")],
         states={EDIT_PAYMENT_VALUE: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_payment_value)]},
         fallbacks=[CommandHandler("cancel", cancel)],
     ))
 
-    # Conversation: User Deposit
+    # Deposit
     app.add_handler(ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^💵 Deposit$"), user_deposit_start)],
         states={
@@ -1177,14 +1192,14 @@ def main():
         fallbacks=[CommandHandler("cancel", cancel)],
     ))
 
-    # Conversation: Redeem Voucher
+    # Voucher Redeem
     app.add_handler(ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^🛡️ Redeem Code$"), get_code_prompt)],
         states={REDEEM_VOUCHER: [MessageHandler(filters.TEXT & ~filters.COMMAND, redeem_code)]},
         fallbacks=[CommandHandler("cancel", cancel)],
     ))
 
-    # Conversation: Create Voucher
+    # Voucher Management
     app.add_handler(ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^🏷️ Voucher Management$"), voucher_management)],
         states={
@@ -1194,7 +1209,7 @@ def main():
         fallbacks=[CommandHandler("cancel", cancel)],
     ))
 
-    # Conversation: Product Add & Price
+    # Product Add & Change Price
     app.add_handler(ConversationHandler(
         entry_points=[
             CallbackQueryHandler(handle_prodman_actions, pattern=r"^prodman_add$"),
@@ -1211,21 +1226,21 @@ def main():
         fallbacks=[CommandHandler("cancel", cancel)],
     ))
 
-    # Conversation: Broadcast
+    # Broadcast
     app.add_handler(ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^📢 Broadcast$"), start_broadcast)],
         states={BROADCAST_MSG: [MessageHandler(filters.TEXT & ~filters.COMMAND, send_broadcast)]},
         fallbacks=[CommandHandler("cancel", cancel)],
     ))
 
-    # Conversation: Add Admin
+    # Add Admin
     app.add_handler(ConversationHandler(
         entry_points=[CallbackQueryHandler(handle_admin_manage_cb, pattern=r"^admin_add$")],
         states={ADD_ADMIN_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_new_admin)]},
         fallbacks=[CommandHandler("cancel", cancel)],
     ))
 
-    # Conversation: Sub-setups
+    # Miscellaneous setups
     app.add_handler(ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^🤝 Reseller Management$"), reseller_management)],
         states={RESELLER_UID: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_reseller_toggle)]},
@@ -1247,7 +1262,7 @@ def main():
         fallbacks=[CommandHandler("cancel", cancel)],
     ))
 
-    # Menu and Button Handlers
+    # Menu Triggers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.Regex("^🎟️ Buy Products$"), buy_products_menu))
     app.add_handler(MessageHandler(filters.Regex("^🧑‍💼 My Profile$"), my_profile))
@@ -1263,7 +1278,7 @@ def main():
     app.add_handler(MessageHandler(filters.Regex("^💳 Payment Settings$"), payment_settings))
     app.add_handler(MessageHandler(filters.Regex("^✅ User Menu$"), start))
 
-    # Inline Query Callbacks
+    # Callbacks
     app.add_handler(CallbackQueryHandler(handle_buy_cat, pattern=r"^buycat_"))
     app.add_handler(CallbackQueryHandler(handle_order, pattern=r"^order_"))
     app.add_handler(CallbackQueryHandler(handle_stock_cat, pattern=r"^stockcat_"))
@@ -1274,8 +1289,16 @@ def main():
     app.add_handler(CallbackQueryHandler(del_admin_cb, pattern=r"^deladm_"))
     app.add_handler(CallbackQueryHandler(handle_admin_manage_cb, pattern=r"^admin_del$"))
 
-    print("Bot is up and listening for Telegram updates...")
-    app.run_polling()
+    # Render-এর জন্য Web Service ব্যাকগ্রাউন্ডে চালু করা
+    await start_web_server()
+
+    # বট শুরু করা
+    async with app:
+        await app.start()
+        await app.updater.start_polling()
+        logging.info("Bot is polling and Web Service is active...")
+        while True:
+            await asyncio.sleep(3600)
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(run_bot())
