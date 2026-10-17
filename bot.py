@@ -1,5 +1,6 @@
 import os
 import io
+import json
 import asyncio
 import logging
 from datetime import datetime
@@ -32,61 +33,41 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 
-# আপনার ফায়ারবেস সার্ভিস একাউন্ট কি কনফিগারেশন
-RAW_PRIVATE_KEY = (
-    "-----BEGIN PRIVATE KEY-----\n"
-    "MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDVkuNMJjibWLLM\n"
-    "675HJwRvWw6D0T3Evuzt4sJ4MUXvXnjzT6EiGw5Nvc0tepJHmKerdLagqHCatiXh\n"
-    "q1BNyGgwBEjaSuxN1rI9AZCOKwaiZu7CstXsi7OBsHNkzwu+pMKa7GubYBVoWFsa\n"
-    "h/636E/JzrYtFmUsvGOvlKOcFqBug9q6cJuu1InBS00vQ0tLI8cAyzMJvOlY3P9k\n"
-    "IoNUd67KQASC2CVi9oc1mDQ4/pmSXs/4yvdxF8hKuTUVL+5BYHP/HsEkb/jcV0MU\n"
-    "C8wTGtHa6df3HjGREfnGgFJnin1Gy10Xu7/j8zE0FTOeYruTzjSITRiPebSWD5GK\n"
-    "y8fshQm7AgMBAAECggEAMY3BW1vK6pBr/Av+vDebWdMAzSjxcgLyqkdg485a8a0z\n"
-    "1xB0zJsGeJc/UfwMkLwkuy17ak9qwRreMzwyh7mmIu37kVqs9WqJNIp2ZeYpxeio\n"
-    "IVipNhc78S1luNApY3SLCrMsTILAtNM7YC6JtVYbnTFvJ4r4sqaLYqPUSlUdqEZW\n"
-    "8PKuIE0Uf6p9CS+cwNuG95VyUmQm0abKAl6fnP0OF6uYQKsWkL2d41EqWAZycfm8\n"
-    "gTG8H69Ad9BOvVetJk9rxNrVIgu5vk9QJc+Yrc8Kme6Z7ctAZmFh4i2rdTKI20nN\n"
-    "ZKIjFlcfGt4y/+R8+uZillHsE4yQGcaUq1opWB7S4QKBgQD5Sa+68XuveNzesCr+\n"
-    "dnqmtWpjgm1oHUn0pAvqCc1Ev61y6QSbsvOxVcOVhsfYr9OWeyTfVoOdi10Yg649\n"
-    "j3p0pGRyCvEOHCnQk+bok6yeIt9868g2+VMNhRjd+brk4d02F9rccwFMHWkyt7Lj\n"
-    "SEmktA+vnQ4m1+53u6053qf2gwKBgQDbUwdEBMbGVlIi4IcUFlkPRZ0MrXxESqph\n"
-    "s+wj2qGboFiWtuU6XJrqmZNFNmSBGufpm5QGO/2nyIn2SlpasxnZb7HS+Uq7CdTr\n"
-    "MR9s/HSPFdxuTCHrnYp1igoxRkgJBsZ5/bKhGfgqwP25nkT1bj5D/YMI5Il1mE4t\n"
-    "vk23VHf6aQKBgBgKMxgkEXlqfmI7OuovIsTQ2eGewk44BNnCuCNprpHiqidasUcS\n"
-    "is2fJ61TwhHzYsQwO+4NucOHnQKwMC1fmL+G2ujkhTqHHMEwgiQLmanmUwcI9dXX\nVVsIas19N7i6z0pYIpL/xDBC5dIuROIGJpPriVe2HZdBW43QW3QpNKlhAoGBAKUc\n"
-    "H1ckZWQArfrVnrsPi+JEXNOjcu6Sayv8YCQpvgnDr41eiLjj6Df+f3DWXtkWoUor\n"
-    "NkdvOCjsfnfsR5MKS8Z2IJ+bzpd58lFQfMD2WOUy5uwd4ldXFVohHkU0DJzG/fnu\n"
-    "dGB1hW7iNOBc9rrxUGys182FBrqBezFSl30RWPUpAoGBAPOxYzHFxqfMHZWCNqTA\n"
-    "rciVTFPBptZrefbGgvlCoiuwNSuvKRaa4QMQCK0xBnZL9VGO6cyOLZ9pTX4Cb2d9\n"
-    "XxGRPNmn9U7xy6lsqQ2xRNsVXOckErY6R9oftXwG5MsK8AATjoucuZu0k4ifIlPt\n"
-    "yNZQoQP1CpAGJiBKb125gIPT\n"
-    "-----END PRIVATE KEY-----\n"
-)
+db = None
 
-# JWT Signature ফিক্স
-FORMATTED_KEY = RAW_PRIVATE_KEY.strip().replace("\\n", "\n")
+# --- FIREBASE CONNECTOR FROM ENVIRONMENT VARIABLES ---
+def load_firebase():
+    global db
+    if db:
+        return True
 
-FIREBASE_CONFIG = {
-    "type": "service_account",
-    "project_id": "auranode-58027",
-    "private_key_id": "b98ef17c416b0e7cb40a87b1e57ea94bc074c2d3",
-    "private_key": FORMATTED_KEY,
-    "client_email": "firebase-adminsdk-fbsvc@auranode-58027.iam.gserviceaccount.com",
-    "client_id": "107659349909868188365",
-    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-    "token_uri": "https://oauth2.googleapis.com/token",
-    "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-    "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/firebase-adminsdk-fbsvc%40auranode-58027.iam.gserviceaccount.com",
-    "universe_domain": "googleapis.com",
-}
+    env_creds = os.environ.get("FIREBASE_CREDENTIALS")
+    if not env_creds:
+        logging.error("FIREBASE_CREDENTIALS environment variable is missing!")
+        return False
 
-# ফায়ারবেস ইনিশিয়ালাইজেশন
-cred = credentials.Certificate(FIREBASE_CONFIG)
-if not firebase_admin._apps:
-    firebase_admin.initialize_app(cred)
-db = firestore.client()
+    try:
+        cred_dict = json.loads(env_creds)
+        # JWT সিগনেচার এরর এড়াতে \n ফরম্যাট ঠিক করা
+        if "private_key" in cred_dict:
+            cred_dict["private_key"] = cred_dict["private_key"].replace("\\n", "\n")
+
+        if not firebase_admin._apps:
+            cred = credentials.Certificate(cred_dict)
+            firebase_admin.initialize_app(cred)
+        db = firestore.client()
+        init_settings()
+        logging.info("Firebase connected successfully via Environment Variable!")
+        return True
+    except Exception as e:
+        logging.error(f"Firebase connection error: {e}")
+        db = None
+        return False
 
 def init_settings():
+    global db
+    if not db:
+        return
     try:
         set_ref = db.collection("settings").document("payments")
         if not set_ref.get().exists:
@@ -95,7 +76,7 @@ def init_settings():
                 "nagad": "01XXXXXXXXX",
                 "rocket": "01XXXXXXXXX",
                 "binance": "1266509663",
-                "dollar_rate": 125.0,
+                "dollar_rate": 125.0
             })
 
         misc_ref = db.collection("settings").document("misc")
@@ -103,14 +84,12 @@ def init_settings():
             misc_ref.set({
                 "support_link": "https://t.me/your_admin",
                 "tutorial_link": "https://youtube.com",
-                "force_channel": "",
+                "force_channel": ""
             })
     except Exception as e:
         logging.error(f"Settings init error: {e}")
 
-init_settings()
-
-# কনভার্সেশন স্টেটস
+# কনভার্সেশন স্টেটসমূহ
 (
     UPLOAD_STOCK,
     FIND_USER,
@@ -131,16 +110,18 @@ init_settings()
     SETUP_SUPPORT,
     SETUP_TUTORIAL,
     SETUP_FORCE_JOIN,
-    RESELLER_UID,
+    RESELLER_UID
 ) = range(1, 21)
 
 def is_admin_sync(user_id: int) -> bool:
     if int(user_id) == int(SUPER_ADMIN_ID):
         return True
-    try:
-        return db.collection("admins").document(str(user_id)).get().exists
-    except Exception:
-        return False
+    if db:
+        try:
+            return db.collection("admins").document(str(user_id)).get().exists
+        except Exception:
+            return False
+    return False
 
 MENU_BUTTON_REGEX = r"^(🛍️ Buy Product|👤 My Profile|💳 Deposit|🏷️ Get Code|💬 Support|👑 Tutorial|👑 Admin Panel|💼 Product Management|📦 Add Stock|📊 Live Stock|👥 User Management|🔔 Deposit Requests|📜 Deposit History|📢 Broadcast|🏷️ Voucher Management|🛠️ Support Setup|💳 Payment Settings|🔑 Admin Management|🤝 Reseller Management|📽️ Tutorial Setup|👑 Force Join Setup|🔙 User Menu)$"
 
@@ -174,37 +155,39 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     is_admin = is_admin_sync(user.id)
 
-    try:
-        user_ref = db.collection("users").document(str(user.id))
-        doc = user_ref.get()
-        if not doc.exists:
-            user_ref.set({
-                "name": user.full_name or "User",
-                "username": user.username or "None",
-                "balance": 0.0,
-                "orders": 0,
-                "joined": datetime.now().strftime("%Y-%m-%d"),
-                "is_banned": False,
-                "is_reseller": False,
-            })
-        else:
-            user_ref.update({
-                "name": user.full_name or "User",
-                "username": user.username or "None",
-            })
-    except Exception as e:
-        logging.error(f"User registration error: {e}")
+    if db:
+        try:
+            user_ref = db.collection("users").document(str(user.id))
+            doc = user_ref.get()
+            if not doc.exists:
+                user_ref.set({
+                    "name": user.full_name or "User",
+                    "username": user.username or "None",
+                    "balance": 0.0,
+                    "orders": 0,
+                    "joined": datetime.now().strftime("%Y-%m-%d"),
+                    "is_banned": False,
+                    "is_reseller": False
+                })
+            else:
+                user_ref.update({
+                    "name": user.full_name or "User",
+                    "username": user.username or "None"
+                })
+        except Exception as e:
+            logging.error(f"User registration error: {e}")
 
     welcome_msg = (
         f"👋 *Welcome, {user.first_name}!*\n\n"
         f"Select an option from the menu below to start purchasing proxies, accounts, and tools."
     )
-    await update.message.reply_text(
-        welcome_msg, parse_mode="Markdown", reply_markup=get_user_menu(is_admin)
-    )
+    await update.message.reply_text(welcome_msg, parse_mode="Markdown", reply_markup=get_user_menu(is_admin))
 
 # --- PROFILE UI ---
 async def my_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not db:
+        await update.message.reply_text("⚠️ Database offline. Check Environment Variables.")
+        return
     user_id = str(update.effective_user.id)
     data = db.collection("users").document(user_id).get().to_dict() or {}
     balance = data.get("balance", 0.0)
@@ -220,50 +203,43 @@ async def my_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"───────────────────────────"
     )
     kb = [[InlineKeyboardButton("🍇 Referral", callback_data="user_referral")]]
-    await update.message.reply_text(
-        card, reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown"
-    )
+    await update.message.reply_text(card, reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
 
 # --- SUPPORT & TUTORIAL ---
 async def user_support(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    misc = db.collection("settings").document("misc").get().to_dict() or {}
-    link = misc.get("support_link", "https://t.me")
+    link = "https://t.me"
+    if db:
+        misc = db.collection("settings").document("misc").get().to_dict() or {}
+        link = misc.get("support_link", link)
 
     msg = (
         "🗣️ *Our Support Team*\n\n"
         "For any issues or inquiries, click the button below to contact support directly."
     )
     kb = [[InlineKeyboardButton("🗣️ Contact Admin", url=link)]]
-    await update.message.reply_text(
-        msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown"
-    )
+    await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
 
 async def user_tutorial(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    misc = db.collection("settings").document("misc").get().to_dict() or {}
-    link = misc.get("tutorial_link", "https://youtube.com")
-    await update.message.reply_text(
-        f"👑 *Tutorial & Help:*\n\nWatch our walkthrough:\n👉 {link}",
-        parse_mode="Markdown",
-    )
+    link = "https://youtube.com"
+    if db:
+        misc = db.collection("settings").document("misc").get().to_dict() or {}
+        link = misc.get("tutorial_link", link)
+    await update.message.reply_text(f"👑 *Tutorial & Help:*\n\nWatch our walkthrough:\n👉 {link}", parse_mode="Markdown")
 
-# --- DEPOSIT SYSTEM (FIXED LOP & PHOTO/SS) ---
+# --- DEPOSIT (SS / TRXID) ---
 async def user_deposit_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not db:
+        await update.message.reply_text("⚠️ Database is offline.")
+        return ConversationHandler.END
+
     settings = db.collection("settings").document("payments").get().to_dict() or {}
     kb = [
-        [
-            InlineKeyboardButton("💳 bKash", callback_data="paymeth_bkash"),
-            InlineKeyboardButton("💳 Nagad", callback_data="paymeth_nagad"),
-        ],
-        [
-            InlineKeyboardButton("💳 Rocket", callback_data="paymeth_rocket"),
-            InlineKeyboardButton("💳 Binance", callback_data="paymeth_binance"),
-        ],
-        [InlineKeyboardButton("❌ Cancel", callback_data="cancel_action")],
+        [InlineKeyboardButton("💳 bKash", callback_data="paymeth_bkash"), InlineKeyboardButton("💳 Nagad", callback_data="paymeth_nagad")],
+        [InlineKeyboardButton("💳 Rocket", callback_data="paymeth_rocket"), InlineKeyboardButton("💳 Binance", callback_data="paymeth_binance")],
+        [InlineKeyboardButton("❌ Cancel", callback_data="cancel_action")]
     ]
     msg = "💳 *Deposit*\n\nSelect payment method:"
-    await update.message.reply_text(
-        msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown"
-    )
+    await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
     return DEPOSIT_AMOUNT
 
 async def deposit_method_picked(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -281,9 +257,7 @@ async def deposit_method_picked(update: Update, context: ContextTypes.DEFAULT_TY
         f"Enter the amount in BDT you transferred (or press Cancel):"
     )
     kb = [[InlineKeyboardButton("❌ Cancel", callback_data="cancel_action")]]
-    await query.edit_message_text(
-        msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown"
-    )
+    await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
     return DEPOSIT_AMOUNT
 
 async def deposit_amount_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -294,14 +268,12 @@ async def deposit_amount_received(update: Update, context: ContextTypes.DEFAULT_
             raise ValueError()
         context.user_data["dep_amount"] = amt
     except Exception:
-        await update.message.reply_text(
-            "❌ Please enter a valid number (e.g. 100) or press /cancel:"
-        )
+        await update.message.reply_text("❌ Please enter a valid number (e.g. 100) or press /cancel:")
         return DEPOSIT_AMOUNT
 
     await update.message.reply_text(
         "📸 Now send your *Transaction ID (TrxID)* OR upload the *Payment Screenshot (SS)* as a photo:",
-        parse_mode="Markdown",
+        parse_mode="Markdown"
     )
     return DEPOSIT_PROOF
 
@@ -318,6 +290,10 @@ async def deposit_proof_received(update: Update, context: ContextTypes.DEFAULT_T
     elif update.message.text:
         trx_text = update.message.text.strip()
 
+    if not db:
+        await update.message.reply_text("⚠️ Database offline.")
+        return ConversationHandler.END
+
     req_ref = db.collection("deposit_requests").add({
         "user_id": uid,
         "amount": amt,
@@ -325,15 +301,13 @@ async def deposit_proof_received(update: Update, context: ContextTypes.DEFAULT_T
         "proof": trx_text,
         "photo_id": photo_file_id,
         "status": "pending",
-        "created_at": firestore.SERVER_TIMESTAMP,
+        "created_at": firestore.SERVER_TIMESTAMP
     })
     req_id = req_ref[1].id
 
     kb = [
-        [
-            InlineKeyboardButton("✅ Approve", callback_data=f"depapp_{req_id}"),
-            InlineKeyboardButton("❌ Reject", callback_data=f"deprej_{req_id}"),
-        ]
+        [InlineKeyboardButton("✅ Approve", callback_data=f"depapp_{req_id}"),
+         InlineKeyboardButton("❌ Reject", callback_data=f"deprej_{req_id}")]
     ]
 
     admin_caption = (
@@ -352,37 +326,37 @@ async def deposit_proof_received(update: Update, context: ContextTypes.DEFAULT_T
                 photo=photo_file_id,
                 caption=admin_caption,
                 parse_mode="Markdown",
-                reply_markup=InlineKeyboardMarkup(kb),
+                reply_markup=InlineKeyboardMarkup(kb)
             )
         else:
             await context.bot.send_message(
                 chat_id=SUPER_ADMIN_ID,
                 text=admin_caption,
                 parse_mode="Markdown",
-                reply_markup=InlineKeyboardMarkup(kb),
+                reply_markup=InlineKeyboardMarkup(kb)
             )
     except Exception as e:
         logging.error(f"Admin notify error: {e}")
 
     await update.message.reply_text(
         "✅ *Deposit request submitted!*\nAdmin will verify and credit your balance shortly.",
-        parse_mode="Markdown",
+        parse_mode="Markdown"
     )
     return ConversationHandler.END
 
-# --- STORE FLOW (DYNAMIC & COUNTER UI) ---
+# --- STORE FLOW ---
 async def buy_products_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not db:
+        await update.message.reply_text("⚠️ Store is currently unavailable.")
+        return
+
     prods = db.collection("products").get()
-    cats = sorted(
-        list(set(p.to_dict().get("cat") for p in prods if p.to_dict().get("cat")))
-    )
+    cats = sorted(list(set(p.to_dict().get("cat") for p in prods if p.to_dict().get("cat"))))
 
     if not cats:
         msg = "🛍️ *Store is Empty!*\nNo products added yet."
         if update.callback_query:
-            await update.callback_query.edit_message_text(
-                msg, parse_mode="Markdown"
-            )
+            await update.callback_query.edit_message_text(msg, parse_mode="Markdown")
         else:
             await update.message.reply_text(msg, parse_mode="Markdown")
         return
@@ -391,30 +365,18 @@ async def buy_products_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     row = []
     for c in cats:
         icon = "🌐" if "Proxy" in c else "🛡️" if "VPN" in c else "✉️"
-        row.append(
-            InlineKeyboardButton(f"{icon} {c}", callback_data=f"buycat_{c}")
-        )
+        row.append(InlineKeyboardButton(f"{icon} {c}", callback_data=f"buycat_{c}"))
         if len(row) == 2:
             buttons.append(row)
             row = []
     if row:
         buttons.append(row)
-    buttons.append([
-        InlineKeyboardButton("❌ Cancel", callback_data="cancel_action")
-    ])
+    buttons.append([InlineKeyboardButton("❌ Cancel", callback_data="cancel_action")])
 
     if update.callback_query:
-        await update.callback_query.edit_message_text(
-            "🛒 *Buy Products*\n\nSelect a category:",
-            reply_markup=InlineKeyboardMarkup(buttons),
-            parse_mode="Markdown",
-        )
+        await update.callback_query.edit_message_text("🛒 *Buy Products*\n\nSelect a category:", reply_markup=InlineKeyboardMarkup(buttons), parse_mode="Markdown")
     else:
-        await update.message.reply_text(
-            "🛒 *Buy Products*\n\nSelect a category:",
-            reply_markup=InlineKeyboardMarkup(buttons),
-            parse_mode="Markdown",
-        )
+        await update.message.reply_text("🛒 *Buy Products*\n\nSelect a category:", reply_markup=InlineKeyboardMarkup(buttons), parse_mode="Markdown")
 
 async def handle_buy_cat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -423,57 +385,32 @@ async def handle_buy_cat(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     prods = db.collection("products").where("cat", "==", category).get()
     if not prods:
-        await query.edit_message_text(
-            f"❌ No products under *{category}*.", parse_mode="Markdown"
-        )
+        await query.edit_message_text(f"❌ No products under *{category}*.", parse_mode="Markdown")
         return
 
     buttons = []
     for p in prods:
         p_data = p.to_dict()
-        buttons.append([
-            InlineKeyboardButton(
-                f"🔹 {p_data['name']} ❯ {p_data['price']:.0f} BDT",
-                callback_data=f"selpkg_{p.id}",
-            )
-        ])
-    buttons.append([
-        InlineKeyboardButton(
-            "🔙 Back to Categories", callback_data="back_to_cats"
-        )
-    ])
+        buttons.append([InlineKeyboardButton(f"🔹 {p_data['name']} ❯ {p_data['price']:.0f} BDT", callback_data=f"selpkg_{p.id}")])
+    buttons.append([InlineKeyboardButton("🔙 Back to Categories", callback_data="back_to_cats")])
 
-    await query.edit_message_text(
-        f"🛒 *Category: {category}*\n\nSelect a product:",
-        reply_markup=InlineKeyboardMarkup(buttons),
-        parse_mode="Markdown",
-    )
+    await query.edit_message_text(f"🛒 *Category: {category}*\n\nSelect a product:", reply_markup=InlineKeyboardMarkup(buttons), parse_mode="Markdown")
 
 def build_purchase_summary_kb(qty: int, prod_id: str):
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton("➖", callback_data=f"qty_dec_{prod_id}_{qty}"),
             InlineKeyboardButton(f"{qty}", callback_data="noop"),
-            InlineKeyboardButton("➕", callback_data=f"qty_inc_{prod_id}_{qty}"),
+            InlineKeyboardButton("➕", callback_data=f"qty_inc_{prod_id}_{qty}")
         ],
         [
-            InlineKeyboardButton(
-                "🔙 Back", callback_data="back_to_cats"
-            ),
-            InlineKeyboardButton(
-                "❌ Cancel", callback_data="cancel_action"
-            ),
+            InlineKeyboardButton("🔙 Back", callback_data="back_to_cats"),
+            InlineKeyboardButton("❌ Cancel", callback_data="cancel_action")
         ],
-        [
-            InlineKeyboardButton(
-                "✅ Confirm", callback_data=f"buy_confirm_{prod_id}_{qty}"
-            )
-        ],
+        [InlineKeyboardButton("✅ Confirm", callback_data=f"buy_confirm_{prod_id}_{qty}")]
     ])
 
-async def show_purchase_summary(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-):
+async def show_purchase_summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     prod_id = query.data.replace("selpkg_", "")
@@ -497,15 +434,9 @@ async def show_purchase_summary(
         f"💲 *Rate:* {unit_price:.2f} BDT\n"
         f"🛒 *Total Price:* {total_price:.2f} BDT"
     )
-    await query.edit_message_text(
-        summary_text,
-        reply_markup=build_purchase_summary_kb(qty, prod_id),
-        parse_mode="Markdown",
-    )
+    await query.edit_message_text(summary_text, reply_markup=build_purchase_summary_kb(qty, prod_id), parse_mode="Markdown")
 
-async def update_quantity_callback(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-):
+async def update_quantity_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     parts = query.data.split("_")
@@ -532,13 +463,8 @@ async def update_quantity_callback(
         f"💲 *Rate:* {unit_price:.2f} BDT\n"
         f"🛒 *Total Price:* {total_price:.2f} BDT"
     )
-    await query.edit_message_text(
-        summary_text,
-        reply_markup=build_purchase_summary_kb(qty, prod_id),
-        parse_mode="Markdown",
-    )
+    await query.edit_message_text(summary_text, reply_markup=build_purchase_summary_kb(qty, prod_id), parse_mode="Markdown")
 
-# Your Proxy স্টাইল ডেলিভারি রিসিপ্ট
 async def confirm_purchase(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = str(query.from_user.id)
@@ -557,25 +483,16 @@ async def confirm_purchase(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer("❌ Product not found.", show_alert=True)
         return
 
-    unit_price = (
-        prod_doc["reseller"]
-        if user_doc.get("is_reseller")
-        else prod_doc["price"]
-    )
+    unit_price = prod_doc["reseller"] if user_doc.get("is_reseller") else prod_doc["price"]
     total_cost = unit_price * qty
 
     if user_doc.get("balance", 0.0) < total_cost:
-        await query.answer(
-            "❌ Insufficient balance! Please deposit first.", show_alert=True
-        )
+        await query.answer("❌ Insufficient balance! Please deposit first.", show_alert=True)
         return
 
     stocks_ref = prod_ref.collection("stocks").limit(qty).get()
     if len(stocks_ref) < qty:
-        await query.answer(
-            f"❌ Not enough stock! Available: {len(stocks_ref)}",
-            show_alert=True,
-        )
+        await query.answer(f"❌ Not enough stock! Available: {len(stocks_ref)}", show_alert=True)
         return
 
     delivered_items = []
@@ -588,7 +505,7 @@ async def confirm_purchase(update: Update, context: ContextTypes.DEFAULT_TYPE):
     remaining_bal = user_doc.get("balance", 0.0) - total_cost
     user_ref.update({
         "balance": remaining_bal,
-        "orders": firestore.Increment(qty),
+        "orders": firestore.Increment(qty)
     })
 
     credentials_formatted = []
@@ -596,14 +513,9 @@ async def confirm_purchase(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if ":" in item:
             parts = item.split(":")
             if len(parts) >= 4:
-                credentials_formatted.append(
-                    f"*Host:* `{parts[0]}` | *Port:* `{parts[1]}`\n*Username ❯*"
-                    f" `{parts[2]}`\n*Password ❯* `{parts[3]}`"
-                )
+                credentials_formatted.append(f"*Host:* `{parts[0]}` | *Port:* `{parts[1]}`\n*Username ❯* `{parts[2]}`\n*Password ❯* `{parts[3]}`")
             elif len(parts) == 2:
-                credentials_formatted.append(
-                    f"*Username ❯* `{parts[0]}`\n*Password ❯* `{parts[1]}`"
-                )
+                credentials_formatted.append(f"*Username ❯* `{parts[0]}`\n*Password ❯* `{parts[1]}`")
             else:
                 credentials_formatted.append(f"`{item}`")
         else:
@@ -632,7 +544,7 @@ async def start_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• 🎙️ *Voice Message*\n"
         "• 📸 *Photo with caption*\n\n"
         "Send /cancel to abort.",
-        parse_mode="Markdown",
+        parse_mode="Markdown"
     )
     return BROADCAST_RECEIVE
 
@@ -645,21 +557,11 @@ async def execute_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
         uid = int(u.id)
         try:
             if update.message.voice:
-                await context.bot.send_voice(
-                    chat_id=uid,
-                    voice=update.message.voice.file_id,
-                    caption=update.message.caption,
-                )
+                await context.bot.send_voice(chat_id=uid, voice=update.message.voice.file_id, caption=update.message.caption)
             elif update.message.photo:
-                await context.bot.send_photo(
-                    chat_id=uid,
-                    photo=update.message.photo[-1].file_id,
-                    caption=update.message.caption,
-                )
+                await context.bot.send_photo(chat_id=uid, photo=update.message.photo[-1].file_id, caption=update.message.caption)
             elif update.message.text:
-                await context.bot.send_message(
-                    chat_id=uid, text=update.message.text
-                )
+                await context.bot.send_message(chat_id=uid, text=update.message.text)
             success += 1
         except Exception:
             failed += 1
@@ -668,7 +570,7 @@ async def execute_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📢 *Broadcast Completed!*\n\n"
         f"✅ Delivered : `{success}`\n"
         f"❌ Failed    : `{failed}`",
-        parse_mode="Markdown",
+        parse_mode="Markdown"
     )
     return ConversationHandler.END
 
@@ -676,28 +578,19 @@ async def execute_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin_sync(update.effective_user.id):
         return
-    await update.message.reply_text(
-        "👑 *Admin Control Panel*",
-        reply_markup=get_admin_menu(),
-        parse_mode="Markdown",
-    )
+    await update.message.reply_text("👑 *Admin Control Panel*", reply_markup=get_admin_menu(), parse_mode="Markdown")
 
 async def live_stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prods = db.collection("products").get()
     if not prods:
-        await update.message.reply_text(
-            "🌐 *Live Stock*\n\nNo products added yet.", parse_mode="Markdown"
-        )
+        await update.message.reply_text("🌐 *Live Stock*\n\nNo products added yet.", parse_mode="Markdown")
         return
 
     msg = "🌐 *Live Stock Feed*\n━━━━━━━━━━━━━━━━━━━━\n\n"
     for p in prods:
         d = p.to_dict()
         count = len(p.reference.collection("stocks").get())
-        msg += (
-            f"📦 *{d['name']}* | Price: `{d['price']:.0f}৳`\n• Category:"
-            f" {d.get('cat')} | Stock: `{count}`\n\n"
-        )
+        msg += f"📦 *{d['name']}* | Price: `{d['price']:.0f}৳`\n• Category: {d.get('cat')} | Stock: `{count}`\n\n"
     await update.message.reply_text(msg, parse_mode="Markdown")
 
 # --- ADD STOCK ---
@@ -706,44 +599,30 @@ async def add_stock_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     prods = db.collection("products").get()
     if not prods:
-        await update.message.reply_text(
-            "❌ Please add a product first before uploading stock."
-        )
+        await update.message.reply_text("❌ Please add a product first before uploading stock.")
         return
 
-    buttons = [
-        [InlineKeyboardButton(p.to_dict()["name"], callback_data=f"upstock_{p.id}")]
-        for p in prods
-    ]
-    await update.message.reply_text(
-        "🗂️ Select product to add stock:",
-        reply_markup=InlineKeyboardMarkup(buttons),
-    )
+    buttons = [[InlineKeyboardButton(p.to_dict()["name"], callback_data=f"upstock_{p.id}")] for p in prods]
+    await update.message.reply_text("🗂️ Select product to add stock:", reply_markup=InlineKeyboardMarkup(buttons))
 
-async def handle_prepare_upload(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-):
+async def handle_prepare_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     prod_id = query.data.replace("upstock_", "")
     context.user_data["upload_prod_id"] = prod_id
 
-    prod_name = (
-        db.collection("products").document(prod_id).get().to_dict().get("name")
-    )
+    prod_name = db.collection("products").document(prod_id).get().to_dict().get("name")
     instruction = (
         f"🗂️ *Upload Stock for:* `{prod_name}`\n\n"
-        "Send an *Excel (.xlsx)* or *Text (.txt)* file:\n\n"
-        "📌 *Supported Formats:*\n"
-        "✏️ *TXT File:* `Host:Port:Username:Password`\n"
-        "🧪 *Excel File:* Col A=Host, B=Port, C=User, D=Pass"
+        f"Send an *Excel (.xlsx)* or *Text (.txt)* file:\n\n"
+        f"📌 *Supported Formats:*\n"
+        f"✏️ *TXT File:* `Host:Port:Username:Password`\n"
+        f"🧪 *Excel File:* Col A=Host, B=Port, C=User, D=Pass"
     )
     await query.edit_message_text(instruction, parse_mode="Markdown")
     return UPLOAD_STOCK
 
-async def process_stock_file(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-):
+async def process_stock_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     doc = update.message.document
     prod_id = context.user_data.get("upload_prod_id")
     if not prod_id:
@@ -760,15 +639,11 @@ async def process_stock_file(
             if line:
                 entries.append(line)
     elif doc.file_name.endswith(".xlsx"):
-        wb = openpyxl.load_workbook(
-            filename=io.BytesIO(file_bytes), data_only=True
-        )
+        wb = openpyxl.load_workbook(filename=io.BytesIO(file_bytes), data_only=True)
         sheet = wb.active
         for row in sheet.iter_rows(values_only=True):
             if any(row):
-                line = ":".join(
-                    str(c).strip() for c in row[:4] if c is not None
-                )
+                line = ":".join(str(c).strip() for c in row[:4] if c is not None)
                 entries.append(line)
 
     if entries:
@@ -777,169 +652,85 @@ async def process_stock_file(
         for item in entries:
             batch.set(prod_ref.collection("stocks").document(), {"data": item})
         batch.commit()
-        await update.message.reply_text(
-            f"✅ Loaded `{len(entries)}` items into stock!",
-            parse_mode="Markdown",
-            reply_markup=get_admin_menu(),
-        )
+        await update.message.reply_text(f"✅ Loaded `{len(entries)}` items into stock!", parse_mode="Markdown", reply_markup=get_admin_menu())
     else:
         await update.message.reply_text("❌ No items parsed from file.")
     return ConversationHandler.END
 
 # --- PRODUCT MANAGEMENT (ADD / PRICE / DELETE / CLEAR) ---
-async def product_management_menu(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-):
+async def product_management_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin_sync(update.effective_user.id):
         return
     kb = [
-        [
-            InlineKeyboardButton(
-                "👑 Add New Product", callback_data="prodman_add"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "💰 Change Price", callback_data="prodman_chprice"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "❌ Delete Product", callback_data="prodman_delprod"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "🧨 Clear All Stock", callback_data="prodman_delstock"
-            )
-        ],
+        [InlineKeyboardButton("👑 Add New Product", callback_data="prodman_add")],
+        [InlineKeyboardButton("💰 Change Price", callback_data="prodman_chprice")],
+        [InlineKeyboardButton("❌ Delete Product", callback_data="prodman_delprod")],
+        [InlineKeyboardButton("🧨 Clear All Stock", callback_data="prodman_delstock")],
     ]
-    await update.message.reply_text(
-        "⚙️ *Product Management Console*",
-        reply_markup=InlineKeyboardMarkup(kb),
-        parse_mode="Markdown",
-    )
+    await update.message.reply_text("⚙️ *Product Management Console*", reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
 
-async def handle_prodman_actions(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-):
+async def handle_prodman_actions(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     act = query.data.replace("prodman_", "")
 
     if act == "add":
-        await query.edit_message_text(
-            "Type the Category name (e.g. Proxy, VPN, Mail):"
-        )
+        await query.edit_message_text("Type the Category name (e.g. Proxy, VPN, Mail):")
         return ADD_PROD_CAT
     elif act == "delprod":
         prods = db.collection("products").get()
         if not prods:
-            await query.edit_message_text(
-                "❌ No products available to delete."
-            )
+            await query.edit_message_text("❌ No products available to delete.")
             return
-        kb = [
-            [
-                InlineKeyboardButton(
-                    f"❌ {p.to_dict()['name']}", callback_data=f"delp_{p.id}"
-                )
-            ]
-            for p in prods
-        ]
-        kb.append(
-            [InlineKeyboardButton("🔙 Cancel", callback_data="cancel_action")]
-        )
-        await query.edit_message_text(
-            "Select product to permanently delete:",
-            reply_markup=InlineKeyboardMarkup(kb),
-        )
+        kb = [[InlineKeyboardButton(f"❌ {p.to_dict()['name']}", callback_data=f"delp_{p.id}")] for p in prods]
+        kb.append([InlineKeyboardButton("🔙 Cancel", callback_data="cancel_action")])
+        await query.edit_message_text("Select product to permanently delete:", reply_markup=InlineKeyboardMarkup(kb))
     elif act == "delstock":
         prods = db.collection("products").get()
         if not prods:
             await query.edit_message_text("❌ No products available.")
             return
-        kb = [
-            [
-                InlineKeyboardButton(
-                    f"🧨 Empty {p.to_dict()['name']}",
-                    callback_data=f"clearstock_{p.id}",
-                )
-            ]
-            for p in prods
-        ]
-        kb.append(
-            [InlineKeyboardButton("🔙 Cancel", callback_data="cancel_action")]
-        )
-        await query.edit_message_text(
-            "Select product to wipe stock:",
-            reply_markup=InlineKeyboardMarkup(kb),
-        )
+        kb = [[InlineKeyboardButton(f"🧨 Empty {p.to_dict()['name']}", callback_data=f"clearstock_{p.id}")] for p in prods]
+        kb.append([InlineKeyboardButton("🔙 Cancel", callback_data="cancel_action")])
+        await query.edit_message_text("Select product to wipe stock:", reply_markup=InlineKeyboardMarkup(kb))
     elif act == "chprice":
         prods = db.collection("products").get()
         if not prods:
             await query.edit_message_text("❌ No products available.")
             return
-        kb = [
-            [
-                InlineKeyboardButton(
-                    f"✏️ {p.to_dict()['name']}", callback_data=f"chpr_{p.id}"
-                )
-            ]
-            for p in prods
-        ]
-        kb.append(
-            [InlineKeyboardButton("🔙 Cancel", callback_data="cancel_action")]
-        )
-        await query.edit_message_text(
-            "Choose product to change pricing:",
-            reply_markup=InlineKeyboardMarkup(kb),
-        )
+        kb = [[InlineKeyboardButton(f"✏️ {p.to_dict()['name']}", callback_data=f"chpr_{p.id}")] for p in prods]
+        kb.append([InlineKeyboardButton("🔙 Cancel", callback_data="cancel_action")])
+        await query.edit_message_text("Choose product to change pricing:", reply_markup=InlineKeyboardMarkup(kb))
 
 async def save_add_prod_cat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["new_cat"] = update.message.text.strip()
-    await update.message.reply_text(
-        "Enter Product Name (e.g. 711 PROXY 1 GB):"
-    )
+    await update.message.reply_text("Enter Product Name (e.g. 711 PROXY 1 GB):")
     return ADD_PROD_NAME
 
-async def save_add_prod_name(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-):
+async def save_add_prod_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["new_name"] = update.message.text.strip()
-    await update.message.reply_text(
-        "Enter Regular & Reseller Price (e.g. `70 65`):", parse_mode="Markdown"
-    )
+    await update.message.reply_text("Enter Regular & Reseller Price (e.g. `70 65`):", parse_mode="Markdown")
     return ADD_PROD_PRICE
 
-async def save_add_prod_price(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-):
+async def save_add_prod_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         parts = update.message.text.strip().split()
         price = float(parts[0])
         reseller = float(parts[1]) if len(parts) > 1 else price
     except Exception:
-        await update.message.reply_text(
-            "❌ Please enter valid numbers (e.g. `70 65`):"
-        )
+        await update.message.reply_text("❌ Please enter valid numbers (e.g. `70 65`):")
         return ADD_PROD_PRICE
 
     db.collection("products").add({
         "cat": context.user_data.get("new_cat"),
         "name": context.user_data.get("new_name"),
         "price": price,
-        "reseller": reseller,
+        "reseller": reseller
     })
-    await update.message.reply_text(
-        "✅ Product successfully created and listed!",
-        reply_markup=get_admin_menu(),
-    )
+    await update.message.reply_text("✅ Product successfully created and listed!", reply_markup=get_admin_menu())
     return ConversationHandler.END
 
-async def delete_single_product(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-):
+async def delete_single_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     pid = query.data.replace("delp_", "")
@@ -950,13 +741,9 @@ async def delete_single_product(
         batch.delete(s.reference)
     batch.commit()
     prod_ref.delete()
-    await query.edit_message_text(
-        "✅ Product and its stock completely deleted!"
-    )
+    await query.edit_message_text("✅ Product and its stock completely deleted!")
 
-async def clear_product_stock(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-):
+async def clear_product_stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     pid = query.data.replace("clearstock_", "")
@@ -967,17 +754,12 @@ async def clear_product_stock(
     batch.commit()
     await query.edit_message_text("✅ Stock emptied successfully!")
 
-async def select_prod_for_price(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-):
+async def select_prod_for_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     pid = query.data.replace("chpr_", "")
     context.user_data["ch_prod_id"] = pid
-    await query.edit_message_text(
-        "Enter new Regular and Reseller price (e.g. `65 60`):",
-        parse_mode="Markdown",
-    )
+    await query.edit_message_text("Enter new Regular and Reseller price (e.g. `65 60`):", parse_mode="Markdown")
     return CHANGE_PRICE_VAL
 
 async def save_new_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -986,18 +768,12 @@ async def save_new_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
         price = float(parts[0])
         reseller = float(parts[1]) if len(parts) > 1 else price
     except Exception:
-        await update.message.reply_text(
-            "❌ Enter numbers only (e.g. `65 60`):"
-        )
+        await update.message.reply_text("❌ Enter numbers only (e.g. `65 60`):")
         return CHANGE_PRICE_VAL
 
     pid = context.user_data.get("ch_prod_id")
-    db.collection("products").document(pid).update(
-        {"price": price, "reseller": reseller}
-    )
-    await update.message.reply_text(
-        "✅ Price updated!", reply_markup=get_admin_menu()
-    )
+    db.collection("products").document(pid).update({"price": price, "reseller": reseller})
+    await update.message.reply_text("✅ Price updated!", reply_markup=get_admin_menu())
     return ConversationHandler.END
 
 # --- USER MANAGEMENT ---
@@ -1017,9 +793,7 @@ async def search_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
             target_user = doc.to_dict()
             target_id = query
     else:
-        results = (
-            db.collection("users").where("username", "==", query).limit(1).get()
-        )
+        results = db.collection("users").where("username", "==", query).limit(1).get()
         if results:
             target_user = results[0].to_dict()
             target_id = results[0].id
@@ -1047,33 +821,15 @@ async def search_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     kb = [
-        [
-            InlineKeyboardButton(
-                "🚫 Ban / Unban", callback_data=f"uact_ban_{target_id}"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "➕ Add Balance", callback_data=f"uact_add_{target_id}"
-            ),
-            InlineKeyboardButton(
-                "➖ Cut Balance", callback_data=f"uact_cut_{target_id}"
-            ),
-        ],
-        [
-            InlineKeyboardButton(
-                "✉️ Send Message", callback_data=f"uact_msg_{target_id}"
-            )
-        ],
+        [InlineKeyboardButton("🚫 Ban / Unban", callback_data=f"uact_ban_{target_id}")],
+        [InlineKeyboardButton("➕ Add Balance", callback_data=f"uact_add_{target_id}"),
+         InlineKeyboardButton("➖ Cut Balance", callback_data=f"uact_cut_{target_id}")],
+        [InlineKeyboardButton("✉️ Send Message", callback_data=f"uact_msg_{target_id}")]
     ]
-    await update.message.reply_text(
-        card, reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown"
-    )
+    await update.message.reply_text(card, reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
     return ConversationHandler.END
 
-async def user_actions_callback(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-):
+async def user_actions_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     action, uid = query.data.replace("uact_", "").split("_")
@@ -1083,10 +839,7 @@ async def user_actions_callback(
         ref = db.collection("users").document(uid)
         curr = ref.get().to_dict().get("is_banned", False)
         ref.update({"is_banned": not curr})
-        await query.edit_message_text(
-            f"✅ User ID `{uid}` Ban Status: `{not curr}`",
-            parse_mode="Markdown",
-        )
+        await query.edit_message_text(f"✅ User ID `{uid}` Ban Status: `{not curr}`", parse_mode="Markdown")
         return ConversationHandler.END
     elif action in ["add", "cut"]:
         context.user_data["bal_op"] = action
@@ -1096,9 +849,7 @@ async def user_actions_callback(
         await query.edit_message_text("Type the message to send to this user:")
         return USER_SEND_MSG
 
-async def apply_user_balance(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-):
+async def apply_user_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         amt = float(update.message.text.strip())
     except ValueError:
@@ -1109,57 +860,37 @@ async def apply_user_balance(
     op = context.user_data.get("bal_op")
     delta = amt if op == "add" else -amt
 
-    db.collection("users").document(uid).update(
-        {"balance": firestore.Increment(delta)}
-    )
-    await update.message.reply_text(
-        f"✅ Balance updated by `{delta:+.2f} BDT`.",
-        parse_mode="Markdown",
-        reply_markup=get_admin_menu(),
-    )
+    db.collection("users").document(uid).update({"balance": firestore.Increment(delta)})
+    await update.message.reply_text(f"✅ Balance updated by `{delta:+.2f} BDT`.", parse_mode="Markdown", reply_markup=get_admin_menu())
     return ConversationHandler.END
 
-async def send_user_direct_msg(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-):
+async def send_user_direct_msg(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = context.user_data.get("action_uid")
     msg_text = update.message.text
     try:
         await context.bot.send_message(
             chat_id=int(uid),
             text=f"💬 *Message from Admin:*\n\n{msg_text}",
-            parse_mode="Markdown",
+            parse_mode="Markdown"
         )
-        await update.message.reply_text(
-            "✅ Message sent!", reply_markup=get_admin_menu()
-        )
+        await update.message.reply_text("✅ Message sent!", reply_markup=get_admin_menu())
     except Exception as e:
         await update.message.reply_text(f"❌ Failed to deliver: {e}")
     return ConversationHandler.END
 
 # --- DEPOSIT APPROVAL / REJECTION & HISTORY ---
-async def show_deposit_requests(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-):
+async def show_deposit_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin_sync(update.effective_user.id):
         return
-    reqs = (
-        db.collection("deposit_requests").where("status", "==", "pending").get()
-    )
+    reqs = db.collection("deposit_requests").where("status", "==", "pending").get()
     if not reqs:
         await update.message.reply_text("✅ No pending deposits.")
         return
 
     for r in reqs:
         d = r.to_dict()
-        kb = [[
-            InlineKeyboardButton(
-                "✅ Approve", callback_data=f"depapp_{r.id}"
-            ),
-            InlineKeyboardButton(
-                "❌ Reject", callback_data=f"deprej_{r.id}"
-            ),
-        ]]
+        kb = [[InlineKeyboardButton("✅ Approve", callback_data=f"depapp_{r.id}"),
+               InlineKeyboardButton("❌ Reject", callback_data=f"deprej_{r.id}")]]
         card = (
             f"🔔 *PENDING DEPOSIT*\n"
             f"• User ID : `{d['user_id']}`\n"
@@ -1168,23 +899,11 @@ async def show_deposit_requests(
             f"• Proof   : `{d.get('proof', 'N/A')}`"
         )
         if d.get("photo_id"):
-            await context.bot.send_photo(
-                chat_id=update.effective_user.id,
-                photo=d["photo_id"],
-                caption=card,
-                parse_mode="Markdown",
-                reply_markup=InlineKeyboardMarkup(kb),
-            )
+            await context.bot.send_photo(chat_id=update.effective_user.id, photo=d["photo_id"], caption=card, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
         else:
-            await update.message.reply_text(
-                card,
-                parse_mode="Markdown",
-                reply_markup=InlineKeyboardMarkup(kb),
-            )
+            await update.message.reply_text(card, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
 
-async def handle_deposit_decide(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-):
+async def handle_deposit_decide(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     act, req_id = query.data.split("_")
@@ -1204,17 +923,16 @@ async def handle_deposit_decide(
 
     if act == "depapp":
         ref.update({"status": "approved"})
-        db.collection("users").document(data["user_id"]).update(
-            {"balance": firestore.Increment(data["amount"])}
-        )
+        db.collection("users").document(data["user_id"]).update({"balance": firestore.Increment(data["amount"])})
         try:
             approved_card = (
-                f"✅ *Deposit Approved!*\nAmount: *{data['amount']:.0f} BDT*"
+                f"✅ *Deposit Approved!*\n"
+                f"Amount: *{data['amount']:.0f} BDT*"
             )
             await context.bot.send_message(
                 chat_id=int(data["user_id"]),
                 text=approved_card,
-                parse_mode="Markdown",
+                parse_mode="Markdown"
             )
         except Exception:
             pass
@@ -1222,12 +940,7 @@ async def handle_deposit_decide(
     else:
         ref.update({"status": "rejected"})
         try:
-            await context.bot.send_message(
-                chat_id=int(data["user_id"]),
-                text=(
-                    f"❌ Deposit request of {data['amount']} BDT was rejected."
-                ),
-            )
+            await context.bot.send_message(chat_id=int(data["user_id"]), text=f"❌ Deposit request of {data['amount']} BDT was rejected.")
         except Exception:
             pass
         msg = f"❌ Rejected deposit for `{data['user_id']}`"
@@ -1240,22 +953,14 @@ async def handle_deposit_decide(
 async def deposit_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin_sync(update.effective_user.id):
         return
-    history = (
-        db.collection("deposit_requests")
-        .order_by("created_at", direction=firestore.Query.DESCENDING)
-        .limit(10)
-        .get()
-    )
+    history = db.collection("deposit_requests").order_by("created_at", direction=firestore.Query.DESCENDING).limit(10).get()
     if not history:
         await update.message.reply_text("No deposit records.")
         return
     msg = "⚙️ *Recent Deposit History:*\n━━━━━━━━━━━━━━━━━━━━\n"
     for h in history:
         d = h.to_dict()
-        msg += (
-            f"• `{d['user_id']}` | `{d['amount']} BDT` | {d['method'].upper()} |"
-            f" `{d['status'].upper()}`\n"
-        )
+        msg += f"• `{d['user_id']}` | `{d['amount']} BDT` | {d['method'].upper()} | `{d['status'].upper()}`\n"
     await update.message.reply_text(msg, parse_mode="Markdown")
 
 # --- PAYMENT SETTINGS ---
@@ -1268,32 +973,13 @@ async def payment_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("Edit bKash Number", callback_data="payedit_bkash")],
         [InlineKeyboardButton("Edit Nagad Number", callback_data="payedit_nagad")],
-        [
-            InlineKeyboardButton(
-                "Edit Rocket Number", callback_data="payedit_rocket"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "Edit Binance Pay ID", callback_data="payedit_binance"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                f"Edit Dollar Rate (Current: {rate:.1f} BDT)",
-                callback_data="payedit_dollar_rate",
-            )
-        ],
+        [InlineKeyboardButton("Edit Rocket Number", callback_data="payedit_rocket")],
+        [InlineKeyboardButton("Edit Binance Pay ID", callback_data="payedit_binance")],
+        [InlineKeyboardButton(f"Edit Dollar Rate (Current: {rate:.1f} BDT)", callback_data="payedit_dollar_rate")],
     ]
-    await update.message.reply_text(
-        "💳 *Select Payment Setting to Update:*",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode="Markdown",
-    )
+    await update.message.reply_text("💳 *Select Payment Setting to Update:*", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
-async def handle_payment_edit(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-):
+async def handle_payment_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     field = query.data.replace("payedit_", "")
@@ -1301,9 +987,7 @@ async def handle_payment_edit(
     await query.edit_message_text(f"Send the new value for `{field}`:")
     return EDIT_PAYMENT_VALUE
 
-async def save_payment_value(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-):
+async def save_payment_value(update: Update, context: ContextTypes.DEFAULT_TYPE):
     val = update.message.text.strip()
     field = context.user_data.get("editing_pay_field")
     if field == "dollar_rate":
@@ -1314,18 +998,12 @@ async def save_payment_value(
             return EDIT_PAYMENT_VALUE
 
     db.collection("settings").document("payments").update({field: val})
-    await update.message.reply_text(
-        f"✅ Updated `{field}`!",
-        parse_mode="Markdown",
-        reply_markup=get_admin_menu(),
-    )
+    await update.message.reply_text(f"✅ Updated `{field}`!", parse_mode="Markdown", reply_markup=get_admin_menu())
     return ConversationHandler.END
 
 # --- VOUCHER MANAGEMENT (REDEEM / CREATE) ---
 async def get_code_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "🏷️ *Enter your Voucher Code:*", parse_mode="Markdown"
-    )
+    await update.message.reply_text("🏷️ *Enter your Voucher Code:*", parse_mode="Markdown")
     return REDEEM_VOUCHER
 
 async def redeem_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1344,24 +1022,15 @@ async def redeem_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     amount = v_data.get("amount", 0.0)
     doc.reference.update({"used": True, "used_by": user_id})
-    db.collection("users").document(user_id).update(
-        {"balance": firestore.Increment(amount)}
-    )
+    db.collection("users").document(user_id).update({"balance": firestore.Increment(amount)})
 
-    await update.message.reply_text(
-        f"🎉 *Success!* `{amount:.2f} BDT` has been added to your balance.",
-        parse_mode="Markdown",
-    )
+    await update.message.reply_text(f"🎉 *Success!* `{amount:.2f} BDT` has been added to your balance.", parse_mode="Markdown")
     return ConversationHandler.END
 
-async def voucher_management(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-):
+async def voucher_management(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin_sync(update.effective_user.id):
         return
-    await update.message.reply_text(
-        "Enter new Voucher/Promo Code (e.g. `OFFER50`):"
-    )
+    await update.message.reply_text("Enter new Voucher/Promo Code (e.g. `OFFER50`):")
     return ADD_VOUCHER_CODE
 
 async def get_v_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1380,34 +1049,22 @@ async def get_v_bal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db.collection("vouchers").document(code).set({
         "amount": amt,
         "used": False,
-        "created_at": firestore.SERVER_TIMESTAMP,
+        "created_at": firestore.SERVER_TIMESTAMP
     })
-    await update.message.reply_text(
-        f"✅ Voucher `{code}` created for `{amt:.2f} BDT`!",
-        parse_mode="Markdown",
-        reply_markup=get_admin_menu(),
-    )
+    await update.message.reply_text(f"✅ Voucher `{code}` created for `{amt:.2f} BDT`!", parse_mode="Markdown", reply_markup=get_admin_menu())
     return ConversationHandler.END
 
 # --- ADMIN DELEGATION ---
-async def admin_management_menu(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-):
+async def admin_management_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if int(update.effective_user.id) != int(SUPER_ADMIN_ID):
         return
     kb = [
         [InlineKeyboardButton("👑 Add Admin", callback_data="admin_add")],
-        [InlineKeyboardButton("❌ Remove Admin", callback_data="admin_del")],
+        [InlineKeyboardButton("❌ Remove Admin", callback_data="admin_del")]
     ]
-    await update.message.reply_text(
-        "👑 *Admin Management*",
-        reply_markup=InlineKeyboardMarkup(kb),
-        parse_mode="Markdown",
-    )
+    await update.message.reply_text("👑 *Admin Management*", reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
 
-async def handle_admin_manage_cb(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-):
+async def handle_admin_manage_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     act = query.data.replace("admin_", "")
@@ -1416,17 +1073,8 @@ async def handle_admin_manage_cb(
         return ADD_ADMIN_ID
     else:
         admins = db.collection("admins").get()
-        kb = [
-            [
-                InlineKeyboardButton(
-                    f"❌ {a.id}", callback_data=f"deladm_{a.id}"
-                )
-            ]
-            for a in admins
-        ]
-        await query.edit_message_text(
-            "Select admin to remove:", reply_markup=InlineKeyboardMarkup(kb)
-        )
+        kb = [[InlineKeyboardButton(f"❌ {a.id}", callback_data=f"deladm_{a.id}")] for a in admins]
+        await query.edit_message_text("Select admin to remove:", reply_markup=InlineKeyboardMarkup(kb))
 
 async def save_new_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     aid = update.message.text.strip()
@@ -1434,11 +1082,7 @@ async def save_new_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Numeric ID only:")
         return ADD_ADMIN_ID
     db.collection("admins").document(aid).set({"role": "admin"})
-    await update.message.reply_text(
-        f"✅ User ID `{aid}` is now an admin!",
-        parse_mode="Markdown",
-        reply_markup=get_admin_menu(),
-    )
+    await update.message.reply_text(f"✅ User ID `{aid}` is now an admin!", parse_mode="Markdown", reply_markup=get_admin_menu())
     return ConversationHandler.END
 
 async def del_admin_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1449,17 +1093,13 @@ async def del_admin_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(f"✅ Admin `{aid}` removed!")
 
 # --- RESELLER, SUPPORT, TUTORIAL, FORCE JOIN ---
-async def reseller_management(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-):
+async def reseller_management(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin_sync(update.effective_user.id):
         return
     await update.message.reply_text("Send User ID to toggle Reseller status:")
     return RESELLER_UID
 
-async def save_reseller_toggle(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-):
+async def save_reseller_toggle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.message.text.strip()
     ref = db.collection("users").document(uid)
     doc = ref.get()
@@ -1469,74 +1109,48 @@ async def save_reseller_toggle(
 
     status = not doc.to_dict().get("is_reseller", False)
     ref.update({"is_reseller": status})
-    await update.message.reply_text(
-        f"✅ Reseller status for `{uid}`:"
-        f" `{'Active' if status else 'Revoked'}`",
-        parse_mode="Markdown",
-        reply_markup=get_admin_menu(),
-    )
+    await update.message.reply_text(f"✅ Reseller status for `{uid}`: `{'Active' if status else 'Revoked'}`", parse_mode="Markdown", reply_markup=get_admin_menu())
     return ConversationHandler.END
 
-async def prompt_support_setup(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-):
+async def prompt_support_setup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin_sync(update.effective_user.id):
         return
-    await update.message.reply_text(
-        "Send Support URL or username (e.g. `https://t.me/admin`):"
-    )
+    await update.message.reply_text("Send Support URL or username (e.g. `https://t.me/admin`):")
     return SETUP_SUPPORT
 
-async def save_support_setup(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-):
+async def save_support_setup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     link = update.message.text.strip()
     db.collection("settings").document("misc").update({"support_link": link})
-    await update.message.reply_text(
-        "✅ Support link saved!", reply_markup=get_admin_menu()
-    )
+    await update.message.reply_text("✅ Support link saved!", reply_markup=get_admin_menu())
     return ConversationHandler.END
 
-async def prompt_tutorial_setup(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-):
+async def prompt_tutorial_setup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin_sync(update.effective_user.id):
         return
     await update.message.reply_text("Send Tutorial Video URL:")
     return SETUP_TUTORIAL
 
-async def save_tutorial_setup(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-):
+async def save_tutorial_setup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     link = update.message.text.strip()
     db.collection("settings").document("misc").update({"tutorial_link": link})
-    await update.message.reply_text(
-        "✅ Tutorial link saved!", reply_markup=get_admin_menu()
-    )
+    await update.message.reply_text("✅ Tutorial link saved!", reply_markup=get_admin_menu())
     return ConversationHandler.END
 
 async def prompt_force_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin_sync(update.effective_user.id):
         return
-    await update.message.reply_text(
-        "Send Force Join channel username (e.g. `@MyChannel`):"
-    )
+    await update.message.reply_text("Send Force Join channel username (e.g. `@MyChannel`):")
     return SETUP_FORCE_JOIN
 
 async def save_force_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ch = update.message.text.strip()
     db.collection("settings").document("misc").update({"force_channel": ch})
-    await update.message.reply_text(
-        "✅ Force Join Channel updated!", reply_markup=get_admin_menu()
-    )
+    await update.message.reply_text("✅ Force Join Channel updated!", reply_markup=get_admin_menu())
     return ConversationHandler.END
 
 # --- CANCEL & NOOP ---
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "Action canceled.",
-        reply_markup=get_user_menu(is_admin_sync(update.effective_user.id)),
-    )
+    await update.message.reply_text("Action canceled.", reply_markup=get_user_menu(is_admin_sync(update.effective_user.id)))
     return ConversationHandler.END
 
 async def cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1563,460 +1177,157 @@ async def start_web_server():
 
 # --- MAIN RUNNER ---
 async def run_bot():
-    # সবার শুরুতে ওয়েব পোর্ট ওপেন করা যাতে Render এর পোর্ট বাইন্ডিং ফেইল না করে
+    # Render-এর জন্য ওয়েব সার্ভার পোর্ট বাইন্ডিং
     await start_web_server()
+
+    # ফায়ারবেস স্বয়ংক্রিয় কানেকশন
+    load_firebase()
 
     app = Application.builder().token(BOT_TOKEN).build()
 
     # ১. Add Stock
-    app.add_handler(
-        ConversationHandler(
-            entry_points=[
-                CallbackQueryHandler(handle_prepare_upload, pattern=r"^upstock_")
-            ],
-            states={
-                UPLOAD_STOCK: [
-                    MessageHandler(filters.Document.ALL, process_stock_file)
-                ]
-            },
-            fallbacks=[
-                CommandHandler("cancel", cancel),
-                MessageHandler(filters.Regex(MENU_BUTTON_REGEX), cancel),
-            ],
-        )
-    )
+    app.add_handler(ConversationHandler(
+        entry_points=[CallbackQueryHandler(handle_prepare_upload, pattern=r"^upstock_")],
+        states={UPLOAD_STOCK: [MessageHandler(filters.Document.ALL, process_stock_file)]},
+        fallbacks=[CommandHandler("cancel", cancel), MessageHandler(filters.Regex(MENU_BUTTON_REGEX), cancel)],
+    ))
 
     # ২. Deposit
-    app.add_handler(
-        ConversationHandler(
-            entry_points=[
-                MessageHandler(filters.Regex("^💳 Deposit$"), user_deposit_start)
+    app.add_handler(ConversationHandler(
+        entry_points=[MessageHandler(filters.Regex("^💳 Deposit$"), user_deposit_start)],
+        states={
+            DEPOSIT_AMOUNT: [
+                CallbackQueryHandler(deposit_method_picked, pattern=r"^paymeth_"),
+                MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex(MENU_BUTTON_REGEX), deposit_amount_received)
             ],
-            states={
-                DEPOSIT_AMOUNT: [
-                    CallbackQueryHandler(
-                        deposit_method_picked, pattern=r"^paymeth_"
-                    ),
-                    MessageHandler(
-                        filters.TEXT
-                        & ~filters.COMMAND
-                        & ~filters.Regex(MENU_BUTTON_REGEX),
-                        deposit_amount_received,
-                    ),
-                ],
-                DEPOSIT_PROOF: [
-                    MessageHandler(
-                        (filters.PHOTO | filters.TEXT)
-                        & ~filters.COMMAND
-                        & ~filters.Regex(MENU_BUTTON_REGEX),
-                        deposit_proof_received,
-                    )
-                ],
-            },
-            fallbacks=[
-                CommandHandler("cancel", cancel),
-                CallbackQueryHandler(cancel_callback, pattern=r"^cancel_action$"),
-                MessageHandler(filters.Regex(MENU_BUTTON_REGEX), cancel),
-            ],
-        )
-    )
+            DEPOSIT_PROOF: [MessageHandler((filters.PHOTO | filters.TEXT) & ~filters.COMMAND & ~filters.Regex(MENU_BUTTON_REGEX), deposit_proof_received)],
+        },
+        fallbacks=[
+            CommandHandler("cancel", cancel),
+            CallbackQueryHandler(cancel_callback, pattern=r"^cancel_action$"),
+            MessageHandler(filters.Regex(MENU_BUTTON_REGEX), cancel)
+        ],
+    ))
 
     # ৩. Add Product & Change Price
-    app.add_handler(
-        ConversationHandler(
-            entry_points=[
-                CallbackQueryHandler(
-                    handle_prodman_actions, pattern=r"^prodman_add$"
-                ),
-                CallbackQueryHandler(select_prod_for_price, pattern=r"^chpr_"),
-            ],
-            states={
-                ADD_PROD_CAT: [
-                    MessageHandler(
-                        filters.TEXT
-                        & ~filters.COMMAND
-                        & ~filters.Regex(MENU_BUTTON_REGEX),
-                        save_add_prod_cat,
-                    )
-                ],
-                ADD_PROD_NAME: [
-                    MessageHandler(
-                        filters.TEXT
-                        & ~filters.COMMAND
-                        & ~filters.Regex(MENU_BUTTON_REGEX),
-                        save_add_prod_name,
-                    )
-                ],
-                ADD_PROD_PRICE: [
-                    MessageHandler(
-                        filters.TEXT
-                        & ~filters.COMMAND
-                        & ~filters.Regex(MENU_BUTTON_REGEX),
-                        save_add_prod_price,
-                    )
-                ],
-                CHANGE_PRICE_VAL: [
-                    MessageHandler(
-                        filters.TEXT
-                        & ~filters.COMMAND
-                        & ~filters.Regex(MENU_BUTTON_REGEX),
-                        save_new_price,
-                    )
-                ],
-            },
-            fallbacks=[
-                CommandHandler("cancel", cancel),
-                MessageHandler(filters.Regex(MENU_BUTTON_REGEX), cancel),
-            ],
-        )
-    )
+    app.add_handler(ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(handle_prodman_actions, pattern=r"^prodman_add$"),
+            CallbackQueryHandler(select_prod_for_price, pattern=r"^chpr_"),
+        ],
+        states={
+            ADD_PROD_CAT: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex(MENU_BUTTON_REGEX), save_add_prod_cat)],
+            ADD_PROD_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex(MENU_BUTTON_REGEX), save_add_prod_name)],
+            ADD_PROD_PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex(MENU_BUTTON_REGEX), save_add_prod_price)],
+            CHANGE_PRICE_VAL: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex(MENU_BUTTON_REGEX), save_new_price)],
+        },
+        fallbacks=[CommandHandler("cancel", cancel), MessageHandler(filters.Regex(MENU_BUTTON_REGEX), cancel)],
+    ))
 
     # ৪. Broadcast
-    app.add_handler(
-        ConversationHandler(
-            entry_points=[
-                MessageHandler(filters.Regex("^📢 Broadcast$"), start_broadcast)
-            ],
-            states={
-                BROADCAST_RECEIVE: [
-                    MessageHandler(
-                        (filters.TEXT | filters.VOICE | filters.PHOTO)
-                        & ~filters.COMMAND
-                        & ~filters.Regex(MENU_BUTTON_REGEX),
-                        execute_broadcast,
-                    )
-                ]
-            },
-            fallbacks=[
-                CommandHandler("cancel", cancel),
-                MessageHandler(filters.Regex(MENU_BUTTON_REGEX), cancel),
-            ],
-        )
-    )
+    app.add_handler(ConversationHandler(
+        entry_points=[MessageHandler(filters.Regex("^📢 Broadcast$"), start_broadcast)],
+        states={BROADCAST_RECEIVE: [MessageHandler((filters.TEXT | filters.VOICE | filters.PHOTO) & ~filters.COMMAND & ~filters.Regex(MENU_BUTTON_REGEX), execute_broadcast)]},
+        fallbacks=[CommandHandler("cancel", cancel), MessageHandler(filters.Regex(MENU_BUTTON_REGEX), cancel)],
+    ))
 
     # ৫. Voucher Redeem
-    app.add_handler(
-        ConversationHandler(
-            entry_points=[
-                MessageHandler(filters.Regex("^🏷️ Get Code$"), get_code_prompt)
-            ],
-            states={
-                REDEEM_VOUCHER: [
-                    MessageHandler(
-                        filters.TEXT
-                        & ~filters.COMMAND
-                        & ~filters.Regex(MENU_BUTTON_REGEX),
-                        redeem_code,
-                    )
-                ]
-            },
-            fallbacks=[
-                CommandHandler("cancel", cancel),
-                MessageHandler(filters.Regex(MENU_BUTTON_REGEX), cancel),
-            ],
-        )
-    )
+    app.add_handler(ConversationHandler(
+        entry_points=[MessageHandler(filters.Regex("^🏷️ Get Code$"), get_code_prompt)],
+        states={REDEEM_VOUCHER: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex(MENU_BUTTON_REGEX), redeem_code)]},
+        fallbacks=[CommandHandler("cancel", cancel), MessageHandler(filters.Regex(MENU_BUTTON_REGEX), cancel)],
+    ))
 
     # ৬. Voucher Create
-    app.add_handler(
-        ConversationHandler(
-            entry_points=[
-                MessageHandler(
-                    filters.Regex("^🏷️ Voucher Management$"), voucher_management
-                )
-            ],
-            states={
-                ADD_VOUCHER_CODE: [
-                    MessageHandler(
-                        filters.TEXT
-                        & ~filters.COMMAND
-                        & ~filters.Regex(MENU_BUTTON_REGEX),
-                        get_v_code,
-                    )
-                ],
-                ADD_VOUCHER_BAL: [
-                    MessageHandler(
-                        filters.TEXT
-                        & ~filters.COMMAND
-                        & ~filters.Regex(MENU_BUTTON_REGEX),
-                        get_v_bal,
-                    )
-                ],
-            },
-            fallbacks=[
-                CommandHandler("cancel", cancel),
-                MessageHandler(filters.Regex(MENU_BUTTON_REGEX), cancel),
-            ],
-        )
-    )
+    app.add_handler(ConversationHandler(
+        entry_points=[MessageHandler(filters.Regex("^🏷️ Voucher Management$"), voucher_management)],
+        states={
+            ADD_VOUCHER_CODE: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex(MENU_BUTTON_REGEX), get_v_code)],
+            ADD_VOUCHER_BAL: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex(MENU_BUTTON_REGEX), get_v_bal)]
+        },
+        fallbacks=[CommandHandler("cancel", cancel), MessageHandler(filters.Regex(MENU_BUTTON_REGEX), cancel)],
+    ))
 
     # ৭. User Management
-    app.add_handler(
-        ConversationHandler(
-            entry_points=[
-                MessageHandler(
-                    filters.Regex("^👥 User Management$"), user_management
-                ),
-                CallbackQueryHandler(
-                    user_actions_callback, pattern=r"^uact_(add|cut|msg)_"
-                ),
-            ],
-            states={
-                FIND_USER: [
-                    MessageHandler(
-                        filters.TEXT
-                        & ~filters.COMMAND
-                        & ~filters.Regex(MENU_BUTTON_REGEX),
-                        search_user,
-                    )
-                ],
-                USER_ACTION_AMOUNT: [
-                    MessageHandler(
-                        filters.TEXT
-                        & ~filters.COMMAND
-                        & ~filters.Regex(MENU_BUTTON_REGEX),
-                        apply_user_balance,
-                    )
-                ],
-                USER_SEND_MSG: [
-                    MessageHandler(
-                        filters.TEXT
-                        & ~filters.COMMAND
-                        & ~filters.Regex(MENU_BUTTON_REGEX),
-                        send_user_direct_msg,
-                    )
-                ],
-            },
-            fallbacks=[
-                CommandHandler("cancel", cancel),
-                MessageHandler(filters.Regex(MENU_BUTTON_REGEX), cancel),
-            ],
-        )
-    )
+    app.add_handler(ConversationHandler(
+        entry_points=[
+            MessageHandler(filters.Regex("^👥 User Management$"), user_management),
+            CallbackQueryHandler(user_actions_callback, pattern=r"^uact_(add|cut|msg)_")
+        ],
+        states={
+            FIND_USER: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex(MENU_BUTTON_REGEX), search_user)],
+            USER_ACTION_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex(MENU_BUTTON_REGEX), apply_user_balance)],
+            USER_SEND_MSG: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex(MENU_BUTTON_REGEX), send_user_direct_msg)],
+        },
+        fallbacks=[CommandHandler("cancel", cancel), MessageHandler(filters.Regex(MENU_BUTTON_REGEX), cancel)],
+    ))
 
     # ৮. Payment Settings
-    app.add_handler(
-        ConversationHandler(
-            entry_points=[
-                CallbackQueryHandler(handle_payment_edit, pattern=r"^payedit_")
-            ],
-            states={
-                EDIT_PAYMENT_VALUE: [
-                    MessageHandler(
-                        filters.TEXT
-                        & ~filters.COMMAND
-                        & ~filters.Regex(MENU_BUTTON_REGEX),
-                        save_payment_value,
-                    )
-                ]
-            },
-            fallbacks=[
-                CommandHandler("cancel", cancel),
-                MessageHandler(filters.Regex(MENU_BUTTON_REGEX), cancel),
-            ],
-        )
-    )
+    app.add_handler(ConversationHandler(
+        entry_points=[CallbackQueryHandler(handle_payment_edit, pattern=r"^payedit_")],
+        states={EDIT_PAYMENT_VALUE: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex(MENU_BUTTON_REGEX), save_payment_value)]},
+        fallbacks=[CommandHandler("cancel", cancel), MessageHandler(filters.Regex(MENU_BUTTON_REGEX), cancel)],
+    ))
 
     # ৯. Add Admin
-    app.add_handler(
-        ConversationHandler(
-            entry_points=[
-                CallbackQueryHandler(handle_admin_manage_cb, pattern=r"^admin_add$")
-            ],
-            states={
-                ADD_ADMIN_ID: [
-                    MessageHandler(
-                        filters.TEXT
-                        & ~filters.COMMAND
-                        & ~filters.Regex(MENU_BUTTON_REGEX),
-                        save_new_admin,
-                    )
-                ]
-            },
-            fallbacks=[
-                CommandHandler("cancel", cancel),
-                MessageHandler(filters.Regex(MENU_BUTTON_REGEX), cancel),
-            ],
-        )
-    )
+    app.add_handler(ConversationHandler(
+        entry_points=[CallbackQueryHandler(handle_admin_manage_cb, pattern=r"^admin_add$")],
+        states={ADD_ADMIN_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex(MENU_BUTTON_REGEX), save_new_admin)]},
+        fallbacks=[CommandHandler("cancel", cancel), MessageHandler(filters.Regex(MENU_BUTTON_REGEX), cancel)],
+    ))
 
     # ১০. Reseller, Support, Tutorial, Force Join
-    app.add_handler(
-        ConversationHandler(
-            entry_points=[
-                MessageHandler(
-                    filters.Regex("^🤝 Reseller Management$"),
-                    reseller_management,
-                )
-            ],
-            states={
-                RESELLER_UID: [
-                    MessageHandler(
-                        filters.TEXT
-                        & ~filters.COMMAND
-                        & ~filters.Regex(MENU_BUTTON_REGEX),
-                        save_reseller_toggle,
-                    )
-                ]
-            },
-            fallbacks=[
-                CommandHandler("cancel", cancel),
-                MessageHandler(filters.Regex(MENU_BUTTON_REGEX), cancel),
-            ],
-        )
-    )
-    app.add_handler(
-        ConversationHandler(
-            entry_points=[
-                MessageHandler(
-                    filters.Regex("^🛠️ Support Setup$"), prompt_support_setup
-                )
-            ],
-            states={
-                SETUP_SUPPORT: [
-                    MessageHandler(
-                        filters.TEXT
-                        & ~filters.COMMAND
-                        & ~filters.Regex(MENU_BUTTON_REGEX),
-                        save_support_setup,
-                    )
-                ]
-            },
-            fallbacks=[
-                CommandHandler("cancel", cancel),
-                MessageHandler(filters.Regex(MENU_BUTTON_REGEX), cancel),
-            ],
-        )
-    )
-    app.add_handler(
-        ConversationHandler(
-            entry_points=[
-                MessageHandler(
-                    filters.Regex("^📽️ Tutorial Setup$"), prompt_tutorial_setup
-                )
-            ],
-            states={
-                SETUP_TUTORIAL: [
-                    MessageHandler(
-                        filters.TEXT
-                        & ~filters.COMMAND
-                        & ~filters.Regex(MENU_BUTTON_REGEX),
-                        save_tutorial_setup,
-                    )
-                ]
-            },
-            fallbacks=[
-                CommandHandler("cancel", cancel),
-                MessageHandler(filters.Regex(MENU_BUTTON_REGEX), cancel),
-            ],
-        )
-    )
-    app.add_handler(
-        ConversationHandler(
-            entry_points=[
-                MessageHandler(
-                    filters.Regex("^👑 Force Join Setup$"), prompt_force_join
-                )
-            ],
-            states={
-                SETUP_FORCE_JOIN: [
-                    MessageHandler(
-                        filters.TEXT
-                        & ~filters.COMMAND
-                        & ~filters.Regex(MENU_BUTTON_REGEX),
-                        save_force_join,
-                    )
-                ]
-            },
-            fallbacks=[
-                CommandHandler("cancel", cancel),
-                MessageHandler(filters.Regex(MENU_BUTTON_REGEX), cancel),
-            ],
-        )
-    )
+    app.add_handler(ConversationHandler(
+        entry_points=[MessageHandler(filters.Regex("^🤝 Reseller Management$"), reseller_management)],
+        states={RESELLER_UID: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex(MENU_BUTTON_REGEX), save_reseller_toggle)]},
+        fallbacks=[CommandHandler("cancel", cancel), MessageHandler(filters.Regex(MENU_BUTTON_REGEX), cancel)],
+    ))
+    app.add_handler(ConversationHandler(
+        entry_points=[MessageHandler(filters.Regex("^🛠️ Support Setup$"), prompt_support_setup)],
+        states={SETUP_SUPPORT: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex(MENU_BUTTON_REGEX), save_support_setup)]},
+        fallbacks=[CommandHandler("cancel", cancel), MessageHandler(filters.Regex(MENU_BUTTON_REGEX), cancel)],
+    ))
+    app.add_handler(ConversationHandler(
+        entry_points=[MessageHandler(filters.Regex("^📽️ Tutorial Setup$"), prompt_tutorial_setup)],
+        states={SETUP_TUTORIAL: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex(MENU_BUTTON_REGEX), save_tutorial_setup)]},
+        fallbacks=[CommandHandler("cancel", cancel), MessageHandler(filters.Regex(MENU_BUTTON_REGEX), cancel)],
+    ))
+    app.add_handler(ConversationHandler(
+        entry_points=[MessageHandler(filters.Regex("^👑 Force Join Setup$"), prompt_force_join)],
+        states={SETUP_FORCE_JOIN: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex(MENU_BUTTON_REGEX), save_force_join)]},
+        fallbacks=[CommandHandler("cancel", cancel), MessageHandler(filters.Regex(MENU_BUTTON_REGEX), cancel)],
+    ))
 
-    # মূল মেনু হ্যান্ডলারসমূহ
+    # মেনু হ্যান্ডলারসমূহ
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(
-        MessageHandler(filters.Regex("^🛍️ Buy Product$"), buy_products_menu)
-    )
-    app.add_handler(
-        MessageHandler(filters.Regex("^👤 My Profile$"), my_profile)
-    )
+    app.add_handler(MessageHandler(filters.Regex("^🛍️ Buy Product$"), buy_products_menu))
+    app.add_handler(MessageHandler(filters.Regex("^👤 My Profile$"), my_profile))
     app.add_handler(MessageHandler(filters.Regex("^💬 Support$"), user_support))
-    app.add_handler(
-        MessageHandler(filters.Regex("^👑 Tutorial$"), user_tutorial)
-    )
-    app.add_handler(
-        MessageHandler(filters.Regex("^👑 Admin Panel$"), admin_panel)
-    )
-    app.add_handler(
-        MessageHandler(
-            filters.Regex("^💼 Product Management$"), product_management_menu
-        )
-    )
-    app.add_handler(
-        MessageHandler(filters.Regex("^📊 Live Stock$"), live_stock)
-    )
-    app.add_handler(
-        MessageHandler(filters.Regex("^📦 Add Stock$"), add_stock_menu)
-    )
-    app.add_handler(
-        MessageHandler(
-            filters.Regex("^🔔 Deposit Requests$"), show_deposit_requests
-        )
-    )
-    app.add_handler(
-        MessageHandler(filters.Regex("^📜 Deposit History$"), deposit_history)
-    )
-    app.add_handler(
-        MessageHandler(
-            filters.Regex("^💳 Payment Settings$"), payment_settings
-        )
-    )
-    app.add_handler(
-        MessageHandler(
-            filters.Regex("^🔑 Admin Management$"), admin_management_menu
-        )
-    )
-    app.add_handler(
-        MessageHandler(filters.Regex("^(🔙 User Menu|✅ User Menu)$"), start)
-    )
+    app.add_handler(MessageHandler(filters.Regex("^👑 Tutorial$"), user_tutorial))
+    app.add_handler(MessageHandler(filters.Regex("^👑 Admin Panel$"), admin_panel))
+    app.add_handler(MessageHandler(filters.Regex("^💼 Product Management$"), product_management_menu))
+    app.add_handler(MessageHandler(filters.Regex("^📊 Live Stock$"), live_stock))
+    app.add_handler(MessageHandler(filters.Regex("^📦 Add Stock$"), add_stock_menu))
+    app.add_handler(MessageHandler(filters.Regex("^🔔 Deposit Requests$"), show_deposit_requests))
+    app.add_handler(MessageHandler(filters.Regex("^📜 Deposit History$"), deposit_history))
+    app.add_handler(MessageHandler(filters.Regex("^💳 Payment Settings$"), payment_settings))
+    app.add_handler(MessageHandler(filters.Regex("^🔑 Admin Management$"), admin_management_menu))
+    app.add_handler(MessageHandler(filters.Regex("^(🔙 User Menu|✅ User Menu)$"), start))
 
     # ইনলাইন বাটন কলব্যাকস
-    app.add_handler(
-        CallbackQueryHandler(buy_products_menu, pattern=r"^back_to_cats$")
-    )
-    app.add_handler(
-        CallbackQueryHandler(cancel_callback, pattern=r"^cancel_action$")
-    )
+    app.add_handler(CallbackQueryHandler(buy_products_menu, pattern=r"^back_to_cats$"))
+    app.add_handler(CallbackQueryHandler(cancel_callback, pattern=r"^cancel_action$"))
     app.add_handler(CallbackQueryHandler(noop_callback, pattern=r"^noop$"))
     app.add_handler(CallbackQueryHandler(handle_buy_cat, pattern=r"^buycat_"))
-    app.add_handler(
-        CallbackQueryHandler(show_purchase_summary, pattern=r"^selpkg_")
-    )
-    app.add_handler(
-        CallbackQueryHandler(update_quantity_callback, pattern=r"^qty_(inc|dec)_")
-    )
-    app.add_handler(
-        CallbackQueryHandler(confirm_purchase, pattern=r"^buy_confirm_")
-    )
-    app.add_handler(
-        CallbackQueryHandler(handle_deposit_decide, pattern=r"^dep(app|rej)_")
-    )
-    app.add_handler(
-        CallbackQueryHandler(handle_prodman_actions, pattern=r"^prodman_")
-    )
-    app.add_handler(
-        CallbackQueryHandler(delete_single_product, pattern=r"^delp_")
-    )
-    app.add_handler(
-        CallbackQueryHandler(clear_product_stock, pattern=r"^clearstock_")
-    )
+    app.add_handler(CallbackQueryHandler(show_purchase_summary, pattern=r"^selpkg_"))
+    app.add_handler(CallbackQueryHandler(update_quantity_callback, pattern=r"^qty_(inc|dec)_"))
+    app.add_handler(CallbackQueryHandler(confirm_purchase, pattern=r"^buy_confirm_"))
+    app.add_handler(CallbackQueryHandler(handle_deposit_decide, pattern=r"^dep(app|rej)_"))
+    app.add_handler(CallbackQueryHandler(handle_prodman_actions, pattern=r"^prodman_"))
+    app.add_handler(CallbackQueryHandler(delete_single_product, pattern=r"^delp_"))
+    app.add_handler(CallbackQueryHandler(clear_product_stock, pattern=r"^clearstock_"))
     app.add_handler(CallbackQueryHandler(del_admin_cb, pattern=r"^deladm_"))
-    app.add_handler(
-        CallbackQueryHandler(handle_admin_manage_cb, pattern=r"^admin_del$")
-    )
+    app.add_handler(CallbackQueryHandler(handle_admin_manage_cb, pattern=r"^admin_del$"))
 
     async with app:
         await app.start()
