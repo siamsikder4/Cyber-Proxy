@@ -1,6 +1,5 @@
 import os
 import io
-import json
 import asyncio
 import logging
 from datetime import datetime
@@ -25,69 +24,35 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 import openpyxl
 
-# --- কনফিগারেশন ---
+# --- CONFIGURATION ---
 BOT_TOKEN = "8868386011:AAEulcSqsAr2DxvBLRdMNANzDfCak5MN64Q"
 SUPER_ADMIN_ID = 8271633124
 
-PERSISTENT_FILE = "persistent_config.json"
-FIREBASE_KEY_PATH = "serviceAccountKey.json"
+# সরাসরি কোডে ফায়ারবেস সার্ভিস একাউন্ট কি কনফিগারেশন
+FIREBASE_CONFIG = {
+  "type": "service_account",
+  "project_id": "auranode-58027",
+  "private_key_id": "b98ef17c416b0e7cb40a87b1e57ea94bc074c2d3",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDVkuNMJjibWLLM\n675HJwRvWw6D0T3Evuzt4sJ4MUXvXnjzT6EiGw5Nvc0tepJHmKerdLagqHCatiXh\nq1BNyGgwBEjaSuxN1rI9AZCOKwaiZu7CstXsi7OBsHNkzwu+pMKa7GubYBVoWFsa\nh/636E/JzrYtFmUsvGOvlKOcFqBug9q6cJuu1InBS00vQ0tLI8cAyzMJvOlY3P9k\nIoNUd67KQASC2CVi9oc1mDQ4/pmSXs/4yvdxF8hKuTUVL+5BYHP/HsEkb/jcV0MU\nC8wTGtHa6df3HjGREfnGgFJnin1Gy10Xu7/j8zE0FTOeYruTzjSITRiPebSWD5GK\ny8fshQm7AgMBAAECggEAMY3BW1vK6pBr/Av+vDebWdMAzSjxcgLyqkdg485a8a0z\n1xB0zJsGeJc/UfwMkLwkuy17ak9qwRreMzwyh7mmIu37kVqs9WqJNIp2ZeYpxeio\nIVipNhc78S1luNApY3SLCrMsTILAtNM7YC6JtVYbnTFvJ4r4sqaLYqPUSlUdqEZW\n8PKuIE0Uf6p9CS+cwNuG95VyUmQm0abKAl6fnP0OF6uYQKsWkL2d41EqWAZycfm8\ngTG8H69Ad9BOvVetJk9rxNrVIgu5vk9QJc+Yrc8Kme6Z7ctAZmFh4i2rdTKI20nN\nZKIjFlcfGt4y/+R8+uZillHsE4yQGcaUq1opWB7S4QKBgQD5Sa+68XuveNzesCr+\ndnqmtWpjgm1oHUn0pAvqCc1Ev61y6QSbsvOxVcOVhsfYr9OWeyTfVoOdi10Yg649\nj3p0pGRyCvEOHCnQk+bok6yeIt9868g2+VMNhRjd+brk4d02F9rccwFMHWkyt7Lj\nSEmktA+vnQ4m1+53u6053qf2gwKBgQDbUwdEBMbGVlIi4IcUFlkPRZ0MrXxESqph\ns+wj2qGboFiWtuU6XJrqmZNFNmSBGufpm5QGO/2nyIn2SlpasxnZb7HS+Uq7CdTr\nMR9s/HSPFdxuTCHrnYp1igoxRkgJBsZ5/bKhGfgqwP25nkT1bj5D/YMI5Il1mE4t\nvk23VHf6aQKBgBgKMxgkEXlqfmI7OuovIsTQ2eGewk44BNnCuCNprpHiqidasUcS\nis2fJ61TwhHzYsQwO+4NucOHnQKwMC1fmL+G2ujkhTqHHMEwgiQLmanmUwcI9dXX\nVVsIas19N7i6z0pYIpL/xDBC5dIuROIGJpPriVe2HZdBW43QW3QpNKlhAoGBAKUc\nH1ckZWQArfrVnrsPi+JEXNOjcu6Sayv8YCQpvgnDr41eiLjj6Df+f3DWXtkWoUor\nNkdvOCjsfnfsR5MKS8Z2IJ+bzpd58lFQfMD2WOUy5uwd4ldXFVohHkU0DJzG/fnu\ndGB1hW7iNOBc9rrxUGys182FBrqBezFSl30RWPUpAoGBAPOxYzHFxqfMHZWCNqTA\nrciVTFPBptZrefbGgvlCoiuwNSuvKRaa4QMQCK0xBnZL9VGO6cyOLZ9pTX4Cb2d9\nXxGRPNmn9U7xy6lsqQ2xRNsVXOckErY6R9oftXwG5MsK8AATjoucuZu0k4ifIlPt\nyNZQoQP1CpAGJiBKb125gIPT\n-----END PRIVATE KEY-----\n",
+  "client_email": "firebase-adminsdk-fbsvc@auranode-58027.iam.gserviceaccount.com",
+  "client_id": "107659349909868188365",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/firebase-adminsdk-fbsvc%40auranode-58027.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 
-db = None
-
-# --- FIREBASE CONNECTOR (স্থায়ী সংরক্ষণ) ---
-def load_firebase():
-    global db
-    if db:
-        return True
-
-    cred_dict = None
-
-    env_creds = os.environ.get("FIREBASE_CREDENTIALS")
-    if env_creds:
-        try:
-            cred_dict = json.loads(env_creds)
-        except Exception as e:
-            logging.error(f"Failed to parse FIREBASE_CREDENTIALS: {e}")
-
-    if not cred_dict and os.path.exists(PERSISTENT_FILE):
-        try:
-            with open(PERSISTENT_FILE, "r", encoding="utf-8") as f:
-                saved = json.load(f)
-                cred_dict = saved.get("firebase_credentials")
-        except Exception as e:
-            logging.error(f"Failed to read {PERSISTENT_FILE}: {e}")
-
-    if not cred_dict and os.path.exists(FIREBASE_KEY_PATH):
-        try:
-            with open(FIREBASE_KEY_PATH, "r", encoding="utf-8") as f:
-                cred_dict = json.load(f)
-        except Exception as e:
-            logging.error(f"Failed to read {FIREBASE_KEY_PATH}: {e}")
-
-    if cred_dict:
-        try:
-            if not firebase_admin._apps:
-                cred = credentials.Certificate(cred_dict)
-                firebase_admin.initialize_app(cred)
-            db = firestore.client()
-            init_settings()
-            logging.info("Firebase connected successfully!")
-            return True
-        except Exception as e:
-            logging.error(f"Firebase connection failed: {e}")
-            db = None
-            return False
-
-    return False
+# ফায়ারবেস অটো ইনিশিয়ালাইজেশন
+cred = credentials.Certificate(FIREBASE_CONFIG)
+firebase_admin.initialize_app(cred)
+db = firestore.client()
 
 def init_settings():
-    global db
-    if not db:
-        return
     try:
         set_ref = db.collection("settings").document("payments")
         if not set_ref.get().exists:
@@ -109,9 +74,10 @@ def init_settings():
     except Exception as e:
         logging.error(f"Settings init error: {e}")
 
-# কনভার্সেশন স্টেটসমূহ
+init_settings()
+
+# কনভার্সেশন স্টেটস
 (
-    UPLOAD_FIREBASE_JSON,
     UPLOAD_STOCK,
     FIND_USER,
     USER_ACTION_AMOUNT,
@@ -132,20 +98,18 @@ def init_settings():
     SETUP_TUTORIAL,
     SETUP_FORCE_JOIN,
     RESELLER_UID
-) = range(1, 22)
+) = range(1, 21)
 
 def is_admin_sync(user_id: int) -> bool:
     if int(user_id) == int(SUPER_ADMIN_ID):
         return True
-    if db:
-        try:
-            return db.collection("admins").document(str(user_id)).get().exists
-        except Exception:
-            return False
-    return False
+    try:
+        return db.collection("admins").document(str(user_id)).get().exists
+    except Exception:
+        return False
 
-# মেনু ফিল্টার (ইনপুটের সময় মেনুতে চাপ দিলে যাতে কনভার্সেশন ব্রেক হয়)
-MENU_BUTTON_REGEX = r"^(🛍️ Buy Product|👤 My Profile|💳 Deposit|🏷️ Get Code|💬 Support|👑 Tutorial|👑 Admin Panel|💼 Product Management|📦 Add Stock|📊 Live Stock|👥 User Management|🔔 Deposit Requests|📜 Deposit History|📢 Broadcast|🏷️ Voucher Management|🛠️ Support Setup|💳 Payment Settings|🔑 Admin Management|🤝 Reseller Management|📽️ Tutorial Setup|👑 Force Join Setup|⚙️ Setup Firebase|🔙 User Menu)$"
+# বাটন চাপলে যাতে কনভার্সেশন লুপ ব্রেক হয়
+MENU_BUTTON_REGEX = r"^(🛍️ Buy Product|👤 My Profile|💳 Deposit|🏷️ Get Code|💬 Support|👑 Tutorial|👑 Admin Panel|💼 Product Management|📦 Add Stock|📊 Live Stock|👥 User Management|🔔 Deposit Requests|📜 Deposit History|📢 Broadcast|🏷️ Voucher Management|🛠️ Support Setup|💳 Payment Settings|🔑 Admin Management|🤝 Reseller Management|📽️ Tutorial Setup|👑 Force Join Setup|🔙 User Menu)$"
 
 # --- কীবোর্ড মেনু ---
 def get_user_menu(is_admin=False):
@@ -168,7 +132,7 @@ def get_admin_menu():
         [KeyboardButton("🛠️ Support Setup"), KeyboardButton("💳 Payment Settings")],
         [KeyboardButton("🔑 Admin Management"), KeyboardButton("🤝 Reseller Management")],
         [KeyboardButton("📽️ Tutorial Setup"), KeyboardButton("👑 Force Join Setup")],
-        [KeyboardButton("⚙️ Setup Firebase"), KeyboardButton("🔙 User Menu")],
+        [KeyboardButton("🔙 User Menu")],
     ]
     return ReplyKeyboardMarkup(kb, resize_keyboard=True)
 
@@ -177,36 +141,26 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     is_admin = is_admin_sync(user.id)
 
-    if db:
-        try:
-            user_ref = db.collection("users").document(str(user.id))
-            doc = user_ref.get()
-            if not doc.exists:
-                user_ref.set({
-                    "name": user.full_name or "User",
-                    "username": user.username or "None",
-                    "balance": 0.0,
-                    "orders": 0,
-                    "joined": datetime.now().strftime("%Y-%m-%d"),
-                    "is_banned": False,
-                    "is_reseller": False
-                })
-            else:
-                user_ref.update({
-                    "name": user.full_name or "User",
-                    "username": user.username or "None"
-                })
-        except Exception as e:
-            logging.error(f"User registration error: {e}")
-
-    if not db and is_admin:
-        msg = (
-            "⚠️ *Firebase Not Configured!*\n\n"
-            "Open *👑 Admin Panel* ❯ *⚙️ Setup Firebase* to upload your `serviceAccountKey.json` once.\n"
-            "It will stay saved permanently."
-        )
-        await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=get_user_menu(is_admin=True))
-        return
+    try:
+        user_ref = db.collection("users").document(str(user.id))
+        doc = user_ref.get()
+        if not doc.exists:
+            user_ref.set({
+                "name": user.full_name or "User",
+                "username": user.username or "None",
+                "balance": 0.0,
+                "orders": 0,
+                "joined": datetime.now().strftime("%Y-%m-%d"),
+                "is_banned": False,
+                "is_reseller": False
+            })
+        else:
+            user_ref.update({
+                "name": user.full_name or "User",
+                "username": user.username or "None"
+            })
+    except Exception as e:
+        logging.error(f"User registration error: {e}")
 
     welcome_msg = (
         f"👋 *Welcome, {user.first_name}!*\n\n"
@@ -214,11 +168,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(welcome_msg, parse_mode="Markdown", reply_markup=get_user_menu(is_admin))
 
-# --- PROFILE ---
+# --- PROFILE UI ---
 async def my_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not db:
-        await update.message.reply_text("⚠️ System offline. Please connect Firebase first.")
-        return
     user_id = str(update.effective_user.id)
     data = db.collection("users").document(user_id).get().to_dict() or {}
     balance = data.get("balance", 0.0)
@@ -236,12 +187,10 @@ async def my_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     kb = [[InlineKeyboardButton("🍇 Referral", callback_data="user_referral")]]
     await update.message.reply_text(card, reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
 
-# --- SUPPORT & TUTORIAL ---
+# --- SUPPORT UI ---
 async def user_support(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    link = "https://t.me"
-    if db:
-        misc = db.collection("settings").document("misc").get().to_dict() or {}
-        link = misc.get("support_link", link)
+    misc = db.collection("settings").document("misc").get().to_dict() or {}
+    link = misc.get("support_link", "https://t.me")
 
     msg = (
         "🗣️ *Our Support Team*\n\n"
@@ -251,62 +200,12 @@ async def user_support(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
 
 async def user_tutorial(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    link = "https://youtube.com"
-    if db:
-        misc = db.collection("settings").document("misc").get().to_dict() or {}
-        link = misc.get("tutorial_link", link)
+    misc = db.collection("settings").document("misc").get().to_dict() or {}
+    link = misc.get("tutorial_link", "https://youtube.com")
     await update.message.reply_text(f"👑 *Tutorial & Help:*\n\nWatch our walkthrough:\n👉 {link}", parse_mode="Markdown")
 
-# --- FIREBASE SETUP VIA BOT ---
-async def ask_firebase_json(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin_sync(update.effective_user.id):
-        return ConversationHandler.END
-
-    msg = (
-        "📁 *Permanent Firebase Setup*\n\n"
-        "Please send your `serviceAccountKey.json` file as a Telegram Document.\n"
-        "Once saved, it will be retained permanently across code updates."
-    )
-    await update.message.reply_text(msg, parse_mode="Markdown")
-    return UPLOAD_FIREBASE_JSON
-
-async def save_firebase_json(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    doc = update.message.document
-    if not doc or not doc.file_name.endswith(".json"):
-        await update.message.reply_text("❌ Please send a valid `.json` file.")
-        return UPLOAD_FIREBASE_JSON
-
-    file = await doc.get_file()
-    file_bytes = await file.download_as_bytearray()
-    try:
-        data_dict = json.loads(file_bytes.decode("utf-8"))
-
-        with open(FIREBASE_KEY_PATH, "w", encoding="utf-8") as f:
-            json.dump(data_dict, f)
-
-        with open(PERSISTENT_FILE, "w", encoding="utf-8") as f:
-            json.dump({"firebase_credentials": data_dict}, f)
-
-        if load_firebase():
-            await update.message.reply_text(
-                "✅ *Firebase connected and permanently saved!*\n"
-                "All functions, stock management, and databases are active.",
-                parse_mode="Markdown",
-                reply_markup=get_admin_menu()
-            )
-        else:
-            await update.message.reply_text("❌ File saved, but failed to connect to Firebase.")
-    except Exception as e:
-        await update.message.reply_text(f"❌ JSON error: `{e}`", parse_mode="Markdown")
-
-    return ConversationHandler.END
-
-# --- DEPOSIT SYSTEM (FIXED & SCREENSHOT / TRXID) ---
+# --- DEPOSIT SYSTEM (FIXED LOP & PHOTO/SS) ---
 async def user_deposit_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not db:
-        await update.message.reply_text("⚠️ Database is offline.")
-        return ConversationHandler.END
-
     settings = db.collection("settings").document("payments").get().to_dict() or {}
     kb = [
         [InlineKeyboardButton("💳 bKash", callback_data="paymeth_bkash"), InlineKeyboardButton("💳 Nagad", callback_data="paymeth_nagad")],
@@ -329,7 +228,7 @@ async def deposit_method_picked(update: Update, context: ContextTypes.DEFAULT_TY
     msg = (
         f"💳 *Deposit via {method.upper()}*\n\n"
         f"Send Money / Transfer to: `{acc_num}`\n\n"
-        f"Enter the amount in BDT you transferred (Or press Cancel):"
+        f"Enter the amount in BDT you transferred (or press Cancel):"
     )
     kb = [[InlineKeyboardButton("❌ Cancel", callback_data="cancel_action")]]
     await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
@@ -343,7 +242,7 @@ async def deposit_amount_received(update: Update, context: ContextTypes.DEFAULT_
             raise ValueError()
         context.user_data["dep_amount"] = amt
     except Exception:
-        await update.message.reply_text("❌ Please enter a valid amount (e.g. 100) or send /cancel:")
+        await update.message.reply_text("❌ Please enter a valid number (e.g. 100) or press /cancel:")
         return DEPOSIT_AMOUNT
 
     await update.message.reply_text(
@@ -364,10 +263,6 @@ async def deposit_proof_received(update: Update, context: ContextTypes.DEFAULT_T
         trx_text = update.message.caption or "Screenshot Attached"
     elif update.message.text:
         trx_text = update.message.text.strip()
-
-    if not db:
-        await update.message.reply_text("⚠️ Database offline.")
-        return ConversationHandler.END
 
     req_ref = db.collection("deposit_requests").add({
         "user_id": uid,
@@ -419,17 +314,17 @@ async def deposit_proof_received(update: Update, context: ContextTypes.DEFAULT_T
     )
     return ConversationHandler.END
 
-# --- STORE FLOW (DYNAMIC & COUNTER) ---
+# --- STORE FLOW (DYNAMIC & COUNTER UI) ---
 async def buy_products_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not db:
-        await update.message.reply_text("⚠️ Store is currently unavailable.")
-        return
-
     prods = db.collection("products").get()
     cats = sorted(list(set(p.to_dict().get("cat") for p in prods if p.to_dict().get("cat"))))
 
     if not cats:
-        await update.message.reply_text("🛍️ *Store is Empty!*\nNo products added yet.", parse_mode="Markdown")
+        msg = "🛍️ *Store is Empty!*\nNo products added yet."
+        if update.callback_query:
+            await update.callback_query.edit_message_text(msg, parse_mode="Markdown")
+        else:
+            await update.message.reply_text(msg, parse_mode="Markdown")
         return
 
     buttons = []
@@ -474,7 +369,6 @@ def build_purchase_summary_kb(qty: int, prod_id: str):
             InlineKeyboardButton(f"{qty}", callback_data="noop"),
             InlineKeyboardButton("➕", callback_data=f"qty_inc_{prod_id}_{qty}")
         ],
-        [InlineKeyboardButton("🔢 Enter quantity", callback_data=f"qty_manual_{prod_id}")],
         [
             InlineKeyboardButton("🔙 Back", callback_data="back_to_cats"),
             InlineKeyboardButton("❌ Cancel", callback_data="cancel_action")
@@ -537,6 +431,7 @@ async def update_quantity_callback(update: Update, context: ContextTypes.DEFAULT
     )
     await query.edit_message_text(summary_text, reply_markup=build_purchase_summary_kb(qty, prod_id), parse_mode="Markdown")
 
+# Your Proxy স্টাইল ডেলিভারি রিসিপ্ট
 async def confirm_purchase(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = str(query.from_user.id)
@@ -580,7 +475,21 @@ async def confirm_purchase(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "orders": firestore.Increment(qty)
     })
 
-    credentials_block = "\n".join(f"`{item}`" for item in delivered_items)
+    # ডেলিভারি ক্রেডেনশিয়াল সুন্দর ফরম্যাটে সাজানো
+    credentials_formatted = []
+    for item in delivered_items:
+        if ":" in item:
+            parts = item.split(":")
+            if len(parts) >= 4:
+                credentials_formatted.append(f"*Host:* `{parts[0]}` | *Port:* `{parts[1]}`\n*Username ❯* `{parts[2]}`\n*Password ❯* `{parts[3]}`")
+            elif len(parts) == 2:
+                credentials_formatted.append(f"*Username ❯* `{parts[0]}`\n*Password ❯* `{parts[1]}`")
+            else:
+                credentials_formatted.append(f"`{item}`")
+        else:
+            credentials_formatted.append(f"`{item}`")
+
+    credentials_block = "\n\n".join(credentials_formatted)
 
     receipt = (
         f"🎉 *{prod_doc.get('cat', 'Product')} purchase successful!* ✅\n\n"
@@ -588,7 +497,7 @@ async def confirm_purchase(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"💲 *Remaining Balance:* {remaining_bal:.2f} BDT\n\n"
         f"⬇️ *Your Credentials:*\n\n"
         f"{credentials_block}\n\n"
-        f"🔥 _Thank you for shopping with us!_"
+        f"🔥 _Thank you for shopping with Your Proxy Bot!_"
     )
     await query.edit_message_text(receipt, parse_mode="Markdown")
 
@@ -596,10 +505,6 @@ async def confirm_purchase(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def start_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin_sync(update.effective_user.id):
         return
-    if not db:
-        await update.message.reply_text("⚠️ Database offline.")
-        return ConversationHandler.END
-
     await update.message.reply_text(
         "📢 *Send Broadcast Message:*\n\n"
         "You can send:\n"
@@ -612,9 +517,6 @@ async def start_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return BROADCAST_RECEIVE
 
 async def execute_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not db:
-        return ConversationHandler.END
-
     users = db.collection("users").get()
     status_msg = await update.message.reply_text("🚀 Broadcasting...")
     success, failed = 0, 0
@@ -647,9 +549,6 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("👑 *Admin Control Panel*", reply_markup=get_admin_menu(), parse_mode="Markdown")
 
 async def live_stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not db:
-        await update.message.reply_text("⚠️ Database offline.")
-        return
     prods = db.collection("products").get()
     if not prods:
         await update.message.reply_text("🌐 *Live Stock*\n\nNo products added yet.", parse_mode="Markdown")
@@ -666,10 +565,6 @@ async def live_stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def add_stock_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin_sync(update.effective_user.id):
         return
-    if not db:
-        await update.message.reply_text("⚠️ Database offline.")
-        return
-
     prods = db.collection("products").get()
     if not prods:
         await update.message.reply_text("❌ Please add a product first before uploading stock.")
@@ -698,7 +593,7 @@ async def handle_prepare_upload(update: Update, context: ContextTypes.DEFAULT_TY
 async def process_stock_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     doc = update.message.document
     prod_id = context.user_data.get("upload_prod_id")
-    if not prod_id or not db:
+    if not prod_id:
         await update.message.reply_text("❌ Error processing upload.")
         return ConversationHandler.END
 
@@ -803,33 +698,28 @@ async def save_add_prod_price(update: Update, context: ContextTypes.DEFAULT_TYPE
     await update.message.reply_text("✅ Product successfully created and listed!", reply_markup=get_admin_menu())
     return ConversationHandler.END
 
-# ফিক্সড: প্রোডাক্ট ও তার সমস্ত সাব-স্টক ক্লিন করে সম্পূর্ণ ডিলিট করা
 async def delete_single_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     pid = query.data.replace("delp_", "")
-    if db:
-        prod_ref = db.collection("products").document(pid)
-        # সাব স্টক ডিলিট
-        stocks = prod_ref.collection("stocks").get()
-        batch = db.batch()
-        for s in stocks:
-            batch.delete(s.reference)
-        batch.commit()
-        # মূল প্রোডাক্ট ডিলিট
-        prod_ref.delete()
+    prod_ref = db.collection("products").document(pid)
+    stocks = prod_ref.collection("stocks").get()
+    batch = db.batch()
+    for s in stocks:
+        batch.delete(s.reference)
+    batch.commit()
+    prod_ref.delete()
     await query.edit_message_text("✅ Product and its stock completely deleted!")
 
 async def clear_product_stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     pid = query.data.replace("clearstock_", "")
-    if db:
-        stocks = db.collection("products").document(pid).collection("stocks").get()
-        batch = db.batch()
-        for s in stocks:
-            batch.delete(s.reference)
-        batch.commit()
+    stocks = db.collection("products").document(pid).collection("stocks").get()
+    batch = db.batch()
+    for s in stocks:
+        batch.delete(s.reference)
+    batch.commit()
     await query.edit_message_text("✅ Stock emptied successfully!")
 
 async def select_prod_for_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -850,8 +740,7 @@ async def save_new_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return CHANGE_PRICE_VAL
 
     pid = context.user_data.get("ch_prod_id")
-    if db:
-        db.collection("products").document(pid).update({"price": price, "reseller": reseller})
+    db.collection("products").document(pid).update({"price": price, "reseller": reseller})
     await update.message.reply_text("✅ Price updated!", reply_markup=get_admin_menu())
     return ConversationHandler.END
 
@@ -865,10 +754,6 @@ async def user_management(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def search_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.message.text.strip().replace("@", "")
     target_user, target_id = None, None
-
-    if not db:
-        await update.message.reply_text("⚠️ Database offline.")
-        return ConversationHandler.END
 
     if query.isdigit():
         doc = db.collection("users").document(query).get()
@@ -918,10 +803,6 @@ async def user_actions_callback(update: Update, context: ContextTypes.DEFAULT_TY
     action, uid = query.data.replace("uact_", "").split("_")
     context.user_data["action_uid"] = uid
 
-    if not db:
-        await query.edit_message_text("⚠️ Database offline.")
-        return ConversationHandler.END
-
     if action == "ban":
         ref = db.collection("users").document(uid)
         curr = ref.get().to_dict().get("is_banned", False)
@@ -947,8 +828,7 @@ async def apply_user_balance(update: Update, context: ContextTypes.DEFAULT_TYPE)
     op = context.user_data.get("bal_op")
     delta = amt if op == "add" else -amt
 
-    if db:
-        db.collection("users").document(uid).update({"balance": firestore.Increment(delta)})
+    db.collection("users").document(uid).update({"balance": firestore.Increment(delta)})
     await update.message.reply_text(f"✅ Balance updated by `{delta:+.2f} BDT`.", parse_mode="Markdown", reply_markup=get_admin_menu())
     return ConversationHandler.END
 
@@ -991,6 +871,7 @@ async def show_deposit_requests(update: Update, context: ContextTypes.DEFAULT_TY
         else:
             await update.message.reply_text(card, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
 
+# Your Proxy স্টাইল Deposit Approved নোটিফিকেশন
 async def handle_deposit_decide(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -1013,9 +894,13 @@ async def handle_deposit_decide(update: Update, context: ContextTypes.DEFAULT_TY
         ref.update({"status": "approved"})
         db.collection("users").document(data["user_id"]).update({"balance": firestore.Increment(data["amount"])})
         try:
+            approved_card = (
+                f"✅ *Deposit Approved!*\n"
+                f"Amount: *{data['amount']:.0f} BDT*"
+            )
             await context.bot.send_message(
                 chat_id=int(data["user_id"]),
-                text=f"✅ *Deposit Approved!*\n*{data['amount']:.2f} BDT* has been credited to your balance.",
+                text=approved_card,
                 parse_mode="Markdown"
             )
         except Exception:
@@ -1037,9 +922,6 @@ async def handle_deposit_decide(update: Update, context: ContextTypes.DEFAULT_TY
 async def deposit_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin_sync(update.effective_user.id):
         return
-    if not db:
-        await update.message.reply_text("⚠️ Database offline.")
-        return
     history = db.collection("deposit_requests").order_by("created_at", direction=firestore.Query.DESCENDING).limit(10).get()
     if not history:
         await update.message.reply_text("No deposit records.")
@@ -1053,9 +935,6 @@ async def deposit_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # --- PAYMENT SETTINGS ---
 async def payment_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin_sync(update.effective_user.id):
-        return
-    if not db:
-        await update.message.reply_text("⚠️ Database offline.")
         return
     data = db.collection("settings").document("payments").get().to_dict() or {}
     rate = data.get("dollar_rate", 125.0)
@@ -1087,8 +966,7 @@ async def save_payment_value(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await update.message.reply_text("❌ Please enter a valid number:")
             return EDIT_PAYMENT_VALUE
 
-    if db:
-        db.collection("settings").document("payments").update({field: val})
+    db.collection("settings").document("payments").update({field: val})
     await update.message.reply_text(f"✅ Updated `{field}`!", parse_mode="Markdown", reply_markup=get_admin_menu())
     return ConversationHandler.END
 
@@ -1100,9 +978,6 @@ async def get_code_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def redeem_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
     code = update.message.text.strip().upper()
     user_id = str(update.effective_user.id)
-    if not db:
-        await update.message.reply_text("⚠️ Database offline.")
-        return ConversationHandler.END
 
     doc = db.collection("vouchers").document(code).get()
     if not doc.exists:
@@ -1124,9 +999,6 @@ async def redeem_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def voucher_management(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin_sync(update.effective_user.id):
         return
-    if not db:
-        await update.message.reply_text("⚠️ Database offline.")
-        return ConversationHandler.END
     await update.message.reply_text("Enter new Voucher/Promo Code (e.g. `OFFER50`):", parse_mode="Markdown")
     return ADD_VOUCHER_CODE
 
@@ -1143,16 +1015,15 @@ async def get_v_bal(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ADD_VOUCHER_BAL
 
     code = context.user_data.get("new_v_code")
-    if db:
-        db.collection("vouchers").document(code).set({
-            "amount": amt,
-            "used": False,
-            "created_at": firestore.SERVER_TIMESTAMP
-        })
+    db.collection("vouchers").document(code).set({
+        "amount": amt,
+        "used": False,
+        "created_at": firestore.SERVER_TIMESTAMP
+    })
     await update.message.reply_text(f"✅ Voucher `{code}` created for `{amt:.2f} BDT`!", parse_mode="Markdown", reply_markup=get_admin_menu())
     return ConversationHandler.END
 
-# --- ADMIN DELEGATION ---
+# --- ADMIN MANAGEMENT ---
 async def admin_management_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if int(update.effective_user.id) != int(SUPER_ADMIN_ID):
         return
@@ -1170,18 +1041,16 @@ async def handle_admin_manage_cb(update: Update, context: ContextTypes.DEFAULT_T
         await query.edit_message_text("Send Telegram Numeric User ID of new admin:")
         return ADD_ADMIN_ID
     else:
-        if db:
-            admins = db.collection("admins").get()
-            kb = [[InlineKeyboardButton(f"❌ {a.id}", callback_data=f"deladm_{a.id}")] for a in admins]
-            await query.edit_message_text("Select admin to remove:", reply_markup=InlineKeyboardMarkup(kb))
+        admins = db.collection("admins").get()
+        kb = [[InlineKeyboardButton(f"❌ {a.id}", callback_data=f"deladm_{a.id}")] for a in admins]
+        await query.edit_message_text("Select admin to remove:", reply_markup=InlineKeyboardMarkup(kb))
 
 async def save_new_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     aid = update.message.text.strip()
     if not aid.isdigit():
         await update.message.reply_text("❌ Numeric ID only:")
         return ADD_ADMIN_ID
-    if db:
-        db.collection("admins").document(aid).set({"role": "admin"})
+    db.collection("admins").document(aid).set({"role": "admin"})
     await update.message.reply_text(f"✅ User ID `{aid}` is now an admin!", parse_mode="Markdown", reply_markup=get_admin_menu())
     return ConversationHandler.END
 
@@ -1189,8 +1058,7 @@ async def del_admin_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     aid = query.data.replace("deladm_", "")
-    if db:
-        db.collection("admins").document(aid).delete()
+    db.collection("admins").document(aid).delete()
     await query.edit_message_text(f"✅ Admin `{aid}` removed!")
 
 # --- RESELLER, SUPPORT, TUTORIAL, FORCE JOIN ---
@@ -1202,8 +1070,6 @@ async def reseller_management(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 async def save_reseller_toggle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.message.text.strip()
-    if not db:
-        return ConversationHandler.END
     ref = db.collection("users").document(uid)
     doc = ref.get()
     if not doc.exists:
@@ -1223,8 +1089,7 @@ async def prompt_support_setup(update: Update, context: ContextTypes.DEFAULT_TYP
 
 async def save_support_setup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     link = update.message.text.strip()
-    if db:
-        db.collection("settings").document("misc").update({"support_link": link})
+    db.collection("settings").document("misc").update({"support_link": link})
     await update.message.reply_text("✅ Support link saved!", reply_markup=get_admin_menu())
     return ConversationHandler.END
 
@@ -1236,8 +1101,7 @@ async def prompt_tutorial_setup(update: Update, context: ContextTypes.DEFAULT_TY
 
 async def save_tutorial_setup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     link = update.message.text.strip()
-    if db:
-        db.collection("settings").document("misc").update({"tutorial_link": link})
+    db.collection("settings").document("misc").update({"tutorial_link": link})
     await update.message.reply_text("✅ Tutorial link saved!", reply_markup=get_admin_menu())
     return ConversationHandler.END
 
@@ -1249,8 +1113,7 @@ async def prompt_force_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def save_force_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ch = update.message.text.strip()
-    if db:
-        db.collection("settings").document("misc").update({"force_channel": ch})
+    db.collection("settings").document("misc").update({"force_channel": ch})
     await update.message.reply_text("✅ Force Join Channel updated!", reply_markup=get_admin_menu())
     return ConversationHandler.END
 
@@ -1267,7 +1130,7 @@ async def cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def noop_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.answer()
 
-# --- RENDER WEB SERVICE PORT LISTENER ---
+# --- RENDER WEB SERVICE LISTENER ---
 async def health_check(request):
     return web.Response(text="Bot is running fine on Render Web Service!")
 
@@ -1283,24 +1146,16 @@ async def start_web_server():
 
 # --- MAIN RUNNER ---
 async def run_bot():
-    load_firebase()
     app = Application.builder().token(BOT_TOKEN).build()
 
-    # ১. Firebase Setup কনভার্সেশন
-    app.add_handler(ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex("^⚙️ Setup Firebase$"), ask_firebase_json)],
-        states={UPLOAD_FIREBASE_JSON: [MessageHandler(filters.Document.ALL, save_firebase_json)]},
-        fallbacks=[CommandHandler("cancel", cancel), MessageHandler(filters.Regex(MENU_BUTTON_REGEX), cancel)],
-    ))
-
-    # ২. Add Stock কনভার্সেশন
+    # ১. Add Stock
     app.add_handler(ConversationHandler(
         entry_points=[CallbackQueryHandler(handle_prepare_upload, pattern=r"^upstock_")],
         states={UPLOAD_STOCK: [MessageHandler(filters.Document.ALL, process_stock_file)]},
         fallbacks=[CommandHandler("cancel", cancel), MessageHandler(filters.Regex(MENU_BUTTON_REGEX), cancel)],
     ))
 
-    # ৩. Deposit কনভার্সেশন (মেনু বাটন চাপ দিলে স্বয়ংক্রিয়ভাবে ক্যানসেল হয়ে রিডাইরেক্ট হবে)
+    # ২. Deposit (মেনু বাটন চাপ দিলে সাথে সাথে লুপ বন্ধ হয়ে যাবে)
     app.add_handler(ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^💳 Deposit$"), user_deposit_start)],
         states={
@@ -1317,7 +1172,7 @@ async def run_bot():
         ],
     ))
 
-    # ৪. Add Product & Change Price কনভার্সেশন
+    # ৩. Add Product & Change Price
     app.add_handler(ConversationHandler(
         entry_points=[
             CallbackQueryHandler(handle_prodman_actions, pattern=r"^prodman_add$"),
@@ -1332,21 +1187,21 @@ async def run_bot():
         fallbacks=[CommandHandler("cancel", cancel), MessageHandler(filters.Regex(MENU_BUTTON_REGEX), cancel)],
     ))
 
-    # ৫. Broadcast কনভার্সেশন
+    # ৪. Broadcast (Text, Voice, Photo)
     app.add_handler(ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^📢 Broadcast$"), start_broadcast)],
         states={BROADCAST_RECEIVE: [MessageHandler((filters.TEXT | filters.VOICE | filters.PHOTO) & ~filters.COMMAND & ~filters.Regex(MENU_BUTTON_REGEX), execute_broadcast)]},
         fallbacks=[CommandHandler("cancel", cancel), MessageHandler(filters.Regex(MENU_BUTTON_REGEX), cancel)],
     ))
 
-    # ৬. Voucher Redeem
+    # ৫. Voucher Redeem
     app.add_handler(ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^🏷️ Get Code$"), get_code_prompt)],
         states={REDEEM_VOUCHER: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex(MENU_BUTTON_REGEX), redeem_code)]},
         fallbacks=[CommandHandler("cancel", cancel), MessageHandler(filters.Regex(MENU_BUTTON_REGEX), cancel)],
     ))
 
-    # ৭. Voucher Create
+    # ৬. Voucher Create
     app.add_handler(ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^🏷️ Voucher Management$"), voucher_management)],
         states={
@@ -1356,7 +1211,7 @@ async def run_bot():
         fallbacks=[CommandHandler("cancel", cancel), MessageHandler(filters.Regex(MENU_BUTTON_REGEX), cancel)],
     ))
 
-    # ৮. User Management
+    # ৭. User Management
     app.add_handler(ConversationHandler(
         entry_points=[
             MessageHandler(filters.Regex("^👥 User Management$"), user_management),
@@ -1370,21 +1225,21 @@ async def run_bot():
         fallbacks=[CommandHandler("cancel", cancel), MessageHandler(filters.Regex(MENU_BUTTON_REGEX), cancel)],
     ))
 
-    # ৯. Payment Settings
+    # ৮. Payment Settings
     app.add_handler(ConversationHandler(
         entry_points=[CallbackQueryHandler(handle_payment_edit, pattern=r"^payedit_")],
         states={EDIT_PAYMENT_VALUE: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex(MENU_BUTTON_REGEX), save_payment_value)]},
         fallbacks=[CommandHandler("cancel", cancel), MessageHandler(filters.Regex(MENU_BUTTON_REGEX), cancel)],
     ))
 
-    # ১০. Add Admin
+    # ৯. Add Admin
     app.add_handler(ConversationHandler(
         entry_points=[CallbackQueryHandler(handle_admin_manage_cb, pattern=r"^admin_add$")],
         states={ADD_ADMIN_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex(MENU_BUTTON_REGEX), save_new_admin)]},
         fallbacks=[CommandHandler("cancel", cancel), MessageHandler(filters.Regex(MENU_BUTTON_REGEX), cancel)],
     ))
 
-    # ১১. অন্যান্য সেটিংস
+    # ১০. Reseller, Support, Tutorial, Force Join
     app.add_handler(ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^🤝 Reseller Management$"), reseller_management)],
         states={RESELLER_UID: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex(MENU_BUTTON_REGEX), save_reseller_toggle)]},
@@ -1406,7 +1261,7 @@ async def run_bot():
         fallbacks=[CommandHandler("cancel", cancel), MessageHandler(filters.Regex(MENU_BUTTON_REGEX), cancel)],
     ))
 
-    # মূল মেনু হ্যান্ডলারসমূহ
+    # মেনু হ্যান্ডলারসমূহ
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.Regex("^🛍️ Buy Product$"), buy_products_menu))
     app.add_handler(MessageHandler(filters.Regex("^👤 My Profile$"), my_profile))
@@ -1437,7 +1292,7 @@ async def run_bot():
     app.add_handler(CallbackQueryHandler(del_admin_cb, pattern=r"^deladm_"))
     app.add_handler(CallbackQueryHandler(handle_admin_manage_cb, pattern=r"^admin_del$"))
 
-    # Render Port Server
+    # Render Port Server চালু রাখা
     await start_web_server()
 
     async with app:
