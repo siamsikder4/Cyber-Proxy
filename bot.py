@@ -23,8 +23,8 @@ from firebase_admin import credentials, firestore
 import openpyxl
 
 # --- কনফিগারেশন ---
-BOT_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN_HERE"  # BotFather থেকে পাওয়া টোকেন
-SUPER_ADMIN_ID = 123456789                  # আপনার টেলিগ্রাম নিউমেরিক আইডি
+BOT_TOKEN = "8868386011:AAEulcSqsAr2DxvBLRdMNANzDfCak5MN64Q"  # BotFather থেকে পাওয়া টোকেন
+SUPER_ADMIN_ID = 8271633124                  # আপনার টেলিগ্রাম নিউমেরিক আইডি
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
