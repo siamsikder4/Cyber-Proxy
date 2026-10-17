@@ -25,7 +25,7 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 import openpyxl
 
-# --- CONFIGURATION ---
+# --- কনফিগারেশন ---
 BOT_TOKEN = "8868386011:AAEulcSqsAr2DxvBLRdMNANzDfCak5MN64Q"
 SUPER_ADMIN_ID = 8271633124
 
@@ -38,7 +38,7 @@ logging.basicConfig(
 
 db = None
 
-# --- FIREBASE CONNECTOR (স্থায়ী মেমরি ও ফাইল ব্যাকআপ) ---
+# --- FIREBASE CONNECTOR (স্থায়ী সংরক্ষণ) ---
 def load_firebase():
     global db
     if db:
@@ -46,7 +46,6 @@ def load_firebase():
 
     cred_dict = None
 
-    # ১. এনভায়রনমেন্ট ভেরিয়েবল
     env_creds = os.environ.get("FIREBASE_CREDENTIALS")
     if env_creds:
         try:
@@ -54,7 +53,6 @@ def load_firebase():
         except Exception as e:
             logging.error(f"Failed to parse FIREBASE_CREDENTIALS: {e}")
 
-    # ২. পার্মানেন্ট কনফিগ ফাইল
     if not cred_dict and os.path.exists(PERSISTENT_FILE):
         try:
             with open(PERSISTENT_FILE, "r", encoding="utf-8") as f:
@@ -63,7 +61,6 @@ def load_firebase():
         except Exception as e:
             logging.error(f"Failed to read {PERSISTENT_FILE}: {e}")
 
-    # ৩. সরাসরি ফাইল
     if not cred_dict and os.path.exists(FIREBASE_KEY_PATH):
         try:
             with open(FIREBASE_KEY_PATH, "r", encoding="utf-8") as f:
@@ -98,7 +95,7 @@ def init_settings():
                 "bkash": "01XXXXXXXXX",
                 "nagad": "01XXXXXXXXX",
                 "rocket": "01XXXXXXXXX",
-                "binance": "12345678",
+                "binance": "1266509663",
                 "dollar_rate": 125.0
             })
 
@@ -112,7 +109,7 @@ def init_settings():
     except Exception as e:
         logging.error(f"Settings init error: {e}")
 
-# Conversation States
+# কনভার্সেশন স্টেটসমূহ
 (
     UPLOAD_FIREBASE_JSON,
     UPLOAD_STOCK,
@@ -125,7 +122,6 @@ def init_settings():
     ADD_PROD_CAT,
     ADD_PROD_NAME,
     ADD_PROD_PRICE,
-    CHANGE_PRICE_SELECT,
     CHANGE_PRICE_VAL,
     BROADCAST_RECEIVE,
     ADD_VOUCHER_CODE,
@@ -136,7 +132,7 @@ def init_settings():
     SETUP_TUTORIAL,
     SETUP_FORCE_JOIN,
     RESELLER_UID
-) = range(1, 23)
+) = range(1, 22)
 
 def is_admin_sync(user_id: int) -> bool:
     if int(user_id) == int(SUPER_ADMIN_ID):
@@ -148,7 +144,10 @@ def is_admin_sync(user_id: int) -> bool:
             return False
     return False
 
-# --- KEYBOARDS ---
+# মেনু ফিল্টার (ইনপুটের সময় মেনুতে চাপ দিলে যাতে কনভার্সেশন ব্রেক হয়)
+MENU_BUTTON_REGEX = r"^(🛍️ Buy Product|👤 My Profile|💳 Deposit|🏷️ Get Code|💬 Support|👑 Tutorial|👑 Admin Panel|💼 Product Management|📦 Add Stock|📊 Live Stock|👥 User Management|🔔 Deposit Requests|📜 Deposit History|📢 Broadcast|🏷️ Voucher Management|🛠️ Support Setup|💳 Payment Settings|🔑 Admin Management|🤝 Reseller Management|📽️ Tutorial Setup|👑 Force Join Setup|⚙️ Setup Firebase|🔙 User Menu)$"
+
+# --- কীবোর্ড মেনু ---
 def get_user_menu(is_admin=False):
     kb = [
         [KeyboardButton("🛍️ Buy Product")],
@@ -302,7 +301,7 @@ async def save_firebase_json(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     return ConversationHandler.END
 
-# --- DEPOSIT (SS / TRXID) ---
+# --- DEPOSIT SYSTEM (FIXED & SCREENSHOT / TRXID) ---
 async def user_deposit_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not db:
         await update.message.reply_text("⚠️ Database is offline.")
@@ -330,23 +329,25 @@ async def deposit_method_picked(update: Update, context: ContextTypes.DEFAULT_TY
     msg = (
         f"💳 *Deposit via {method.upper()}*\n\n"
         f"Send Money / Transfer to: `{acc_num}`\n\n"
-        f"Enter the amount in BDT you transferred:"
+        f"Enter the amount in BDT you transferred (Or press Cancel):"
     )
-    await query.edit_message_text(msg, parse_mode="Markdown")
+    kb = [[InlineKeyboardButton("❌ Cancel", callback_data="cancel_action")]]
+    await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
     return DEPOSIT_AMOUNT
 
 async def deposit_amount_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
     try:
-        amt = float(update.message.text.strip())
+        amt = float(text)
         if amt <= 0:
             raise ValueError()
         context.user_data["dep_amount"] = amt
     except Exception:
-        await update.message.reply_text("❌ Please enter a valid amount (e.g. 100):")
+        await update.message.reply_text("❌ Please enter a valid amount (e.g. 100) or send /cancel:")
         return DEPOSIT_AMOUNT
 
     await update.message.reply_text(
-        "📸 Now send your *Transaction ID (TrxID)* OR send the *Payment Screenshot (SS)* as a photo:",
+        "📸 Now send your *Transaction ID (TrxID)* OR upload the *Payment Screenshot (SS)* as a photo:",
         parse_mode="Markdown"
     )
     return DEPOSIT_PROOF
@@ -418,18 +419,17 @@ async def deposit_proof_received(update: Update, context: ContextTypes.DEFAULT_T
     )
     return ConversationHandler.END
 
-# --- STORE (DYNAMIC CATEGORIES & COUNTER) ---
+# --- STORE FLOW (DYNAMIC & COUNTER) ---
 async def buy_products_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not db:
         await update.message.reply_text("⚠️ Store is currently unavailable.")
         return
 
-    # অ্যাডমিন যোগ করার পরই লোড হবে
     prods = db.collection("products").get()
     cats = sorted(list(set(p.to_dict().get("cat") for p in prods if p.to_dict().get("cat"))))
 
     if not cats:
-        await update.message.reply_text("🛍️ *Store is Empty!*\nNo products have been added yet.", parse_mode="Markdown")
+        await update.message.reply_text("🛍️ *Store is Empty!*\nNo products added yet.", parse_mode="Markdown")
         return
 
     buttons = []
@@ -444,7 +444,10 @@ async def buy_products_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         buttons.append(row)
     buttons.append([InlineKeyboardButton("❌ Cancel", callback_data="cancel_action")])
 
-    await update.message.reply_text("🛒 *Buy Products*\n\nSelect a category:", reply_markup=InlineKeyboardMarkup(buttons), parse_mode="Markdown")
+    if update.callback_query:
+        await update.callback_query.edit_message_text("🛒 *Buy Products*\n\nSelect a category:", reply_markup=InlineKeyboardMarkup(buttons), parse_mode="Markdown")
+    else:
+        await update.message.reply_text("🛒 *Buy Products*\n\nSelect a category:", reply_markup=InlineKeyboardMarkup(buttons), parse_mode="Markdown")
 
 async def handle_buy_cat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -749,17 +752,28 @@ async def handle_prodman_actions(update: Update, context: ContextTypes.DEFAULT_T
         return ADD_PROD_CAT
     elif act == "delprod":
         prods = db.collection("products").get()
+        if not prods:
+            await query.edit_message_text("❌ No products available to delete.")
+            return
         kb = [[InlineKeyboardButton(f"❌ {p.to_dict()['name']}", callback_data=f"delp_{p.id}")] for p in prods]
-        await query.edit_message_text("Select product to delete:", reply_markup=InlineKeyboardMarkup(kb))
+        kb.append([InlineKeyboardButton("🔙 Cancel", callback_data="cancel_action")])
+        await query.edit_message_text("Select product to permanently delete:", reply_markup=InlineKeyboardMarkup(kb))
     elif act == "delstock":
         prods = db.collection("products").get()
+        if not prods:
+            await query.edit_message_text("❌ No products available.")
+            return
         kb = [[InlineKeyboardButton(f"🧨 Empty {p.to_dict()['name']}", callback_data=f"clearstock_{p.id}")] for p in prods]
+        kb.append([InlineKeyboardButton("🔙 Cancel", callback_data="cancel_action")])
         await query.edit_message_text("Select product to wipe stock:", reply_markup=InlineKeyboardMarkup(kb))
     elif act == "chprice":
         prods = db.collection("products").get()
+        if not prods:
+            await query.edit_message_text("❌ No products available.")
+            return
         kb = [[InlineKeyboardButton(f"✏️ {p.to_dict()['name']}", callback_data=f"chpr_{p.id}")] for p in prods]
+        kb.append([InlineKeyboardButton("🔙 Cancel", callback_data="cancel_action")])
         await query.edit_message_text("Choose product to change pricing:", reply_markup=InlineKeyboardMarkup(kb))
-        return CHANGE_PRICE_SELECT
 
 async def save_add_prod_cat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["new_cat"] = update.message.text.strip()
@@ -789,13 +803,22 @@ async def save_add_prod_price(update: Update, context: ContextTypes.DEFAULT_TYPE
     await update.message.reply_text("✅ Product successfully created and listed!", reply_markup=get_admin_menu())
     return ConversationHandler.END
 
+# ফিক্সড: প্রোডাক্ট ও তার সমস্ত সাব-স্টক ক্লিন করে সম্পূর্ণ ডিলিট করা
 async def delete_single_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     pid = query.data.replace("delp_", "")
     if db:
-        db.collection("products").document(pid).delete()
-    await query.edit_message_text("✅ Product deleted.")
+        prod_ref = db.collection("products").document(pid)
+        # সাব স্টক ডিলিট
+        stocks = prod_ref.collection("stocks").get()
+        batch = db.batch()
+        for s in stocks:
+            batch.delete(s.reference)
+        batch.commit()
+        # মূল প্রোডাক্ট ডিলিট
+        prod_ref.delete()
+    await query.edit_message_text("✅ Product and its stock completely deleted!")
 
 async def clear_product_stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -807,7 +830,7 @@ async def clear_product_stock(update: Update, context: ContextTypes.DEFAULT_TYPE
         for s in stocks:
             batch.delete(s.reference)
         batch.commit()
-    await query.edit_message_text("✅ Stock emptied.")
+    await query.edit_message_text("✅ Stock emptied successfully!")
 
 async def select_prod_for_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -1129,7 +1152,7 @@ async def get_v_bal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"✅ Voucher `{code}` created for `{amt:.2f} BDT`!", parse_mode="Markdown", reply_markup=get_admin_menu())
     return ConversationHandler.END
 
-# --- ADMIN MANAGEMENT ---
+# --- ADMIN DELEGATION ---
 async def admin_management_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if int(update.effective_user.id) != int(SUPER_ADMIN_ID):
         return
@@ -1239,7 +1262,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text("❌ Canceled.")
+    await query.edit_message_text("❌ Action canceled.")
 
 async def noop_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.answer()
@@ -1263,125 +1286,127 @@ async def run_bot():
     load_firebase()
     app = Application.builder().token(BOT_TOKEN).build()
 
-    # Firebase Setup
+    # ১. Firebase Setup কনভার্সেশন
     app.add_handler(ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^⚙️ Setup Firebase$"), ask_firebase_json)],
         states={UPLOAD_FIREBASE_JSON: [MessageHandler(filters.Document.ALL, save_firebase_json)]},
-        fallbacks=[CommandHandler("cancel", cancel)],
+        fallbacks=[CommandHandler("cancel", cancel), MessageHandler(filters.Regex(MENU_BUTTON_REGEX), cancel)],
     ))
 
-    # Add Stock
+    # ২. Add Stock কনভার্সেশন
     app.add_handler(ConversationHandler(
         entry_points=[CallbackQueryHandler(handle_prepare_upload, pattern=r"^upstock_")],
         states={UPLOAD_STOCK: [MessageHandler(filters.Document.ALL, process_stock_file)]},
-        fallbacks=[CommandHandler("cancel", cancel)],
+        fallbacks=[CommandHandler("cancel", cancel), MessageHandler(filters.Regex(MENU_BUTTON_REGEX), cancel)],
     ))
 
-    # Deposit with Text / Photo (SS)
+    # ৩. Deposit কনভার্সেশন (মেনু বাটন চাপ দিলে স্বয়ংক্রিয়ভাবে ক্যানসেল হয়ে রিডাইরেক্ট হবে)
     app.add_handler(ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^💳 Deposit$"), user_deposit_start)],
         states={
             DEPOSIT_AMOUNT: [
                 CallbackQueryHandler(deposit_method_picked, pattern=r"^paymeth_"),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, deposit_amount_received)
+                MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex(MENU_BUTTON_REGEX), deposit_amount_received)
             ],
-            DEPOSIT_PROOF: [MessageHandler((filters.PHOTO | filters.TEXT) & ~filters.COMMAND, deposit_proof_received)],
+            DEPOSIT_PROOF: [MessageHandler((filters.PHOTO | filters.TEXT) & ~filters.COMMAND & ~filters.Regex(MENU_BUTTON_REGEX), deposit_proof_received)],
         },
-        fallbacks=[CommandHandler("cancel", cancel)],
+        fallbacks=[
+            CommandHandler("cancel", cancel),
+            CallbackQueryHandler(cancel_callback, pattern=r"^cancel_action$"),
+            MessageHandler(filters.Regex(MENU_BUTTON_REGEX), cancel)
+        ],
     ))
 
-    # Product Add & Price Change
+    # ৪. Add Product & Change Price কনভার্সেশন
     app.add_handler(ConversationHandler(
         entry_points=[
             CallbackQueryHandler(handle_prodman_actions, pattern=r"^prodman_add$"),
-            CallbackQueryHandler(handle_prodman_actions, pattern=r"^prodman_chprice$"),
             CallbackQueryHandler(select_prod_for_price, pattern=r"^chpr_"),
         ],
         states={
-            ADD_PROD_CAT: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_add_prod_cat)],
-            ADD_PROD_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_add_prod_name)],
-            ADD_PROD_PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_add_prod_price)],
-            CHANGE_PRICE_SELECT: [CallbackQueryHandler(select_prod_for_price, pattern=r"^chpr_")],
-            CHANGE_PRICE_VAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_new_price)],
+            ADD_PROD_CAT: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex(MENU_BUTTON_REGEX), save_add_prod_cat)],
+            ADD_PROD_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex(MENU_BUTTON_REGEX), save_add_prod_name)],
+            ADD_PROD_PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex(MENU_BUTTON_REGEX), save_add_prod_price)],
+            CHANGE_PRICE_VAL: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex(MENU_BUTTON_REGEX), save_new_price)],
         },
-        fallbacks=[CommandHandler("cancel", cancel)],
+        fallbacks=[CommandHandler("cancel", cancel), MessageHandler(filters.Regex(MENU_BUTTON_REGEX), cancel)],
     ))
 
-    # Broadcast (Text / Voice / Photo)
+    # ৫. Broadcast কনভার্সেশন
     app.add_handler(ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^📢 Broadcast$"), start_broadcast)],
-        states={BROADCAST_RECEIVE: [MessageHandler((filters.TEXT | filters.VOICE | filters.PHOTO) & ~filters.COMMAND, execute_broadcast)]},
-        fallbacks=[CommandHandler("cancel", cancel)],
+        states={BROADCAST_RECEIVE: [MessageHandler((filters.TEXT | filters.VOICE | filters.PHOTO) & ~filters.COMMAND & ~filters.Regex(MENU_BUTTON_REGEX), execute_broadcast)]},
+        fallbacks=[CommandHandler("cancel", cancel), MessageHandler(filters.Regex(MENU_BUTTON_REGEX), cancel)],
     ))
 
-    # Voucher Redeem
+    # ৬. Voucher Redeem
     app.add_handler(ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^🏷️ Get Code$"), get_code_prompt)],
-        states={REDEEM_VOUCHER: [MessageHandler(filters.TEXT & ~filters.COMMAND, redeem_code)]},
-        fallbacks=[CommandHandler("cancel", cancel)],
+        states={REDEEM_VOUCHER: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex(MENU_BUTTON_REGEX), redeem_code)]},
+        fallbacks=[CommandHandler("cancel", cancel), MessageHandler(filters.Regex(MENU_BUTTON_REGEX), cancel)],
     ))
 
-    # Voucher Create
+    # ৭. Voucher Create
     app.add_handler(ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^🏷️ Voucher Management$"), voucher_management)],
         states={
-            ADD_VOUCHER_CODE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_v_code)],
-            ADD_VOUCHER_BAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_v_bal)]
+            ADD_VOUCHER_CODE: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex(MENU_BUTTON_REGEX), get_v_code)],
+            ADD_VOUCHER_BAL: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex(MENU_BUTTON_REGEX), get_v_bal)]
         },
-        fallbacks=[CommandHandler("cancel", cancel)],
+        fallbacks=[CommandHandler("cancel", cancel), MessageHandler(filters.Regex(MENU_BUTTON_REGEX), cancel)],
     ))
 
-    # User Management
+    # ৮. User Management
     app.add_handler(ConversationHandler(
         entry_points=[
             MessageHandler(filters.Regex("^👥 User Management$"), user_management),
             CallbackQueryHandler(user_actions_callback, pattern=r"^uact_(add|cut|msg)_")
         ],
         states={
-            FIND_USER: [MessageHandler(filters.TEXT & ~filters.COMMAND, search_user)],
-            USER_ACTION_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, apply_user_balance)],
-            USER_SEND_MSG: [MessageHandler(filters.TEXT & ~filters.COMMAND, send_user_direct_msg)],
+            FIND_USER: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex(MENU_BUTTON_REGEX), search_user)],
+            USER_ACTION_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex(MENU_BUTTON_REGEX), apply_user_balance)],
+            USER_SEND_MSG: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex(MENU_BUTTON_REGEX), send_user_direct_msg)],
         },
-        fallbacks=[CommandHandler("cancel", cancel)],
+        fallbacks=[CommandHandler("cancel", cancel), MessageHandler(filters.Regex(MENU_BUTTON_REGEX), cancel)],
     ))
 
-    # Payment Settings
+    # ৯. Payment Settings
     app.add_handler(ConversationHandler(
         entry_points=[CallbackQueryHandler(handle_payment_edit, pattern=r"^payedit_")],
-        states={EDIT_PAYMENT_VALUE: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_payment_value)]},
-        fallbacks=[CommandHandler("cancel", cancel)],
+        states={EDIT_PAYMENT_VALUE: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex(MENU_BUTTON_REGEX), save_payment_value)]},
+        fallbacks=[CommandHandler("cancel", cancel), MessageHandler(filters.Regex(MENU_BUTTON_REGEX), cancel)],
     ))
 
-    # Add Admin
+    # ১০. Add Admin
     app.add_handler(ConversationHandler(
         entry_points=[CallbackQueryHandler(handle_admin_manage_cb, pattern=r"^admin_add$")],
-        states={ADD_ADMIN_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_new_admin)]},
-        fallbacks=[CommandHandler("cancel", cancel)],
+        states={ADD_ADMIN_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex(MENU_BUTTON_REGEX), save_new_admin)]},
+        fallbacks=[CommandHandler("cancel", cancel), MessageHandler(filters.Regex(MENU_BUTTON_REGEX), cancel)],
     ))
 
-    # Reseller, Support, Tutorial, Force Join
+    # ১১. অন্যান্য সেটিংস
     app.add_handler(ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^🤝 Reseller Management$"), reseller_management)],
-        states={RESELLER_UID: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_reseller_toggle)]},
-        fallbacks=[CommandHandler("cancel", cancel)],
+        states={RESELLER_UID: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex(MENU_BUTTON_REGEX), save_reseller_toggle)]},
+        fallbacks=[CommandHandler("cancel", cancel), MessageHandler(filters.Regex(MENU_BUTTON_REGEX), cancel)],
     ))
     app.add_handler(ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^🛠️ Support Setup$"), prompt_support_setup)],
-        states={SETUP_SUPPORT: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_support_setup)]},
-        fallbacks=[CommandHandler("cancel", cancel)],
+        states={SETUP_SUPPORT: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex(MENU_BUTTON_REGEX), save_support_setup)]},
+        fallbacks=[CommandHandler("cancel", cancel), MessageHandler(filters.Regex(MENU_BUTTON_REGEX), cancel)],
     ))
     app.add_handler(ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^📽️ Tutorial Setup$"), prompt_tutorial_setup)],
-        states={SETUP_TUTORIAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_tutorial_setup)]},
-        fallbacks=[CommandHandler("cancel", cancel)],
+        states={SETUP_TUTORIAL: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex(MENU_BUTTON_REGEX), save_tutorial_setup)]},
+        fallbacks=[CommandHandler("cancel", cancel), MessageHandler(filters.Regex(MENU_BUTTON_REGEX), cancel)],
     ))
     app.add_handler(ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^👑 Force Join Setup$"), prompt_force_join)],
-        states={SETUP_FORCE_JOIN: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_force_join)]},
-        fallbacks=[CommandHandler("cancel", cancel)],
+        states={SETUP_FORCE_JOIN: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex(MENU_BUTTON_REGEX), save_force_join)]},
+        fallbacks=[CommandHandler("cancel", cancel), MessageHandler(filters.Regex(MENU_BUTTON_REGEX), cancel)],
     ))
 
-    # Main Menus
+    # মূল মেনু হ্যান্ডলারসমূহ
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.Regex("^🛍️ Buy Product$"), buy_products_menu))
     app.add_handler(MessageHandler(filters.Regex("^👤 My Profile$"), my_profile))
@@ -1397,7 +1422,7 @@ async def run_bot():
     app.add_handler(MessageHandler(filters.Regex("^🔑 Admin Management$"), admin_management_menu))
     app.add_handler(MessageHandler(filters.Regex("^(🔙 User Menu|✅ User Menu)$"), start))
 
-    # Callbacks
+    # ইনলাইন বাটন কলব্যাকস
     app.add_handler(CallbackQueryHandler(buy_products_menu, pattern=r"^back_to_cats$"))
     app.add_handler(CallbackQueryHandler(cancel_callback, pattern=r"^cancel_action$"))
     app.add_handler(CallbackQueryHandler(noop_callback, pattern=r"^noop$"))
@@ -1406,6 +1431,7 @@ async def run_bot():
     app.add_handler(CallbackQueryHandler(update_quantity_callback, pattern=r"^qty_(inc|dec)_"))
     app.add_handler(CallbackQueryHandler(confirm_purchase, pattern=r"^buy_confirm_"))
     app.add_handler(CallbackQueryHandler(handle_deposit_decide, pattern=r"^dep(app|rej)_"))
+    app.add_handler(CallbackQueryHandler(handle_prodman_actions, pattern=r"^prodman_"))
     app.add_handler(CallbackQueryHandler(delete_single_product, pattern=r"^delp_"))
     app.add_handler(CallbackQueryHandler(clear_product_stock, pattern=r"^clearstock_"))
     app.add_handler(CallbackQueryHandler(del_admin_cb, pattern=r"^deladm_"))
