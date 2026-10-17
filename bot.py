@@ -1,11 +1,7 @@
+import os
 import io
+import json
 import logging
-from datetime import datetime
-import openpyxl
-
-import firebase_admin
-from firebase_admin import credentials, firestore, db
-
 from telegram import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
@@ -22,66 +18,117 @@ from telegram.ext import (
     MessageHandler,
     filters,
 )
+import firebase_admin
+from firebase_admin import credentials, firestore
+import openpyxl
 
-# ----------------- CONFIGURATION -----------------
-BOT_TOKEN = "8868386011:AAEulcSqsAr2DxvBLRdMNANzDfCak5MN64Q"
-SUPER_ADMIN_ID = 8271633124  # Replace with primary Admin ID[span_4](start_span)[span_4](end_span)
-FIREBASE_CREDENTIALS_PATH = "serviceAccountKey.json"
-DATABASE_URL = "https://YOUR_PROJECT_ID.firebaseio.com"
+# --- কনফিগারেশন ---
+BOT_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN_HERE"  # BotFather থেকে পাওয়া টোকেন
+SUPER_ADMIN_ID = 123456789                  # আপনার টেলিগ্রাম নিউমেরিক আইডি
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 
-# Conversation States
-UPLOAD_STOCK, FIND_USER, EDIT_SETTING = range(3)
+FIREBASE_KEY_PATH = "serviceAccountKey.json"
+db = None
 
-# ----------------- FIREBASE INITIALIZATION -----------------
-cred = credentials.Certificate(FIREBASE_CREDENTIALS_PATH)
-firebase_admin.initialize_app(cred, {"databaseURL": DATABASE_URL})
-fs = firestore.client()
+# --- ফায়ারবেস কানেকশন লজিক ---
+def load_firebase():
+    global db
+    if os.path.exists(FIREBASE_KEY_PATH):
+        try:
+            if not firebase_admin._apps:
+                cred = credentials.Certificate(FIREBASE_KEY_PATH)
+                firebase_admin.initialize_app(cred)
+            db = firestore.client()
+            init_firestore_defaults()
+            logging.info("Firebase connected successfully!")
+            return True
+        except Exception as e:
+            logging.error(f"Firebase connection error: {e}")
+            return False
+    return False
 
-# Seed Settings & Sample Categories if not exist
-def setup_defaults():
-    settings_ref = fs.collection("system").document("settings")
+def init_firestore_defaults():
+    global db
+    if not db:
+        return
+    # পেমেন্ট ডিফল্ট সেটিংস
+    settings_ref = db.collection("settings").document("payments")
     if not settings_ref.get().exists:
         settings_ref.set({
-            "dollar_rate": 120.0,
             "bkash": "01XXXXXXXXX",
             "nagad": "01XXXXXXXXX",
             "rocket": "01XXXXXXXXX",
-            "binance": "pay_id_here",
-            "support_user": "@YourSupportHandle"
+            "binance": "12345678",
+            "dollar_rate": 120.0
+        })
+    
+    # সাপোর্ট ও টিউটোরিয়াল ডিফল্ট সেটিংস
+    misc_ref = db.collection("settings").document("misc")
+    if not misc_ref.get().exists:
+        misc_ref.set({
+            "support_link": "https://t.me/your_support",
+            "tutorial_link": "https://youtube.com",
+            "force_channel": ""
         })
 
-    # Default admin setup
-    admin_ref = fs.collection("admins").document(str(SUPER_ADMIN_ID))
-    if not admin_ref.get().exists:
-        admin_ref.set({"added_at": firestore.SERVER_TIMESTAMP, "role": "super_admin"})
+    # ডিফল্ট ক্যাটাগরি ও প্রোডাক্ট
+    prods = db.collection("products").limit(1).get()
+    if len(prods) == 0:
+        default_items = [
+            {"cat": "Proxy~IP", "name": "1GB USA Proxy 1 Month", "price": 75.0, "reseller": 75.0},
+            {"cat": "Proxy~IP", "name": "Rapid Proxy 200 MB", "price": 40.0, "reseller": 40.0},
+            {"cat": "Proxy~IP", "name": "Owl Proxy 200 MB", "price": 15.0, "reseller": 15.0},
+            {"cat": "Hotmail", "name": "Hotmail Fresh Account", "price": 10.0, "reseller": 8.0},
+            {"cat": "Outlook", "name": "Outlook Old Account", "price": 12.0, "reseller": 10.0},
+            {"cat": "FR_Outlook", "name": "FR Outlook Account", "price": 15.0, "reseller": 12.0},
+            {"cat": "VPN", "name": "NordVPN 1 Month", "price": 120.0, "reseller": 100.0},
+        ]
+        for item in default_items:
+            db.collection("products").add(item)
 
-setup_defaults()
+# কনভার্সেশন স্টেটস
+(
+    UPLOAD_FIREBASE_JSON,
+    UPLOAD_STOCK,
+    FIND_USER,
+    USER_ACTION_AMOUNT,
+    USER_SEND_MSG,
+    EDIT_PAYMENT_VALUE,
+    DEPOSIT_AMOUNT,
+    DEPOSIT_TRX,
+    ADD_PROD_CAT,
+    ADD_PROD_NAME,
+    ADD_PROD_PRICE,
+    CHANGE_PRICE_SELECT,
+    CHANGE_PRICE_VAL,
+    BROADCAST_MSG,
+    ADD_VOUCHER_CODE,
+    ADD_VOUCHER_BAL,
+    REDEEM_VOUCHER,
+    ADD_ADMIN_ID,
+    DEL_ADMIN_ID,
+    SETUP_SUPPORT,
+    SETUP_TUTORIAL,
+    SETUP_FORCE_JOIN,
+    RESELLER_UID
+) = range(1, 24)
 
-# ----------------- ACCESS HELPERS -----------------
-def is_admin(user_id: int) -> bool:
-    if user_id == SUPER_ADMIN_ID:
-        return True
-    doc = fs.collection("admins").document(str(user_id)).get()
-    return doc.exists
-
-# ----------------- KEYBOARD BUILDERS -----------------
-def get_user_menu(user_id: int):
+# --- কীবোর্ড জেনারেটর ---
+def get_user_menu(is_admin=False):
     kb = [
         [KeyboardButton("🎟️ Buy Products")],
         [KeyboardButton("🧑‍💼 My Profile"), KeyboardButton("💵 Deposit")],
         [KeyboardButton("🛡️ Get Code"), KeyboardButton("💬 Support")],
         [KeyboardButton("👑 Tutorial")],
     ]
-    if is_admin(user_id):
+    if is_admin:
         kb.append([KeyboardButton("👑 Admin Panel")])
     return ReplyKeyboardMarkup(kb, resize_keyboard=True)
 
 def get_admin_menu():
-    # Exactly matching the admin panel dashboard layout[span_5](start_span)[span_5](end_span)[span_6](start_span)[span_6](end_span)
     kb = [
         [KeyboardButton("💼 Product Management"), KeyboardButton("🔥 Add Stock")],
         [KeyboardButton("🌐 Live Stock"), KeyboardButton("👥 User Management")],
@@ -90,295 +137,353 @@ def get_admin_menu():
         [KeyboardButton("👑 Force Join Setup"), KeyboardButton("🧰 Support Setup")],
         [KeyboardButton("🔑 Admin Management"), KeyboardButton("💳 Payment Settings")],
         [KeyboardButton("🤝 Reseller Management"), KeyboardButton("📽️ Tutorial Setup")],
-        [KeyboardButton("✅ User Menu")],
+        [KeyboardButton("🔥 Setup Firebase"), KeyboardButton("✅ User Menu")],
     ]
     return ReplyKeyboardMarkup(kb, resize_keyboard=True)
 
-# ----------------- START COMMAND -----------------
+async def check_admin(user_id: int) -> bool:
+    if user_id == SUPER_ADMIN_ID:
+        return True
+    if db:
+        doc = db.collection("admins").document(str(user_id)).get()
+        return doc.exists
+    return False
+
+# --- START COMMAND ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    u_ref = fs.collection("users").document(str(user.id))
-    
-    # Register/Update user metadata
-    if not u_ref.get().exists:
-        u_ref.set({
-            "name": user.full_name or "Anonymous",
-            "username": user.username or "",
-            "balance": 0.0,
-            "orders": 0,
-            "status": "Active",
-            "joined_at": firestore.SERVER_TIMESTAMP
-        })
-    else:
-        u_ref.update({
-            "name": user.full_name or "Anonymous",
-            "username": user.username or ""
-        })
+    is_admin = await check_admin(user.id)
 
-    await update.message.reply_text(
-        "✅ মূল মেনু:",
-        reply_markup=get_user_menu(user.id)
-    )
+    if db:
+        user_ref = db.collection("users").document(str(user.id))
+        if not user_ref.get().exists:
+            user_ref.set({
+                "name": user.full_name,
+                "username": user.username or "None",
+                "balance": 0.0,
+                "orders": 0,
+                "is_banned": False,
+                "is_reseller": False
+            })
+        else:
+            user_ref.update({"name": user.full_name, "username": user.username or "None"})
 
-# ----------------- USER PROFILE -----------------
-async def my_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    u_doc = fs.collection("users").document(str(user_id)).get()
-    settings = fs.collection("system").document("settings").get().to_dict() or {}
-    rate = settings.get("dollar_rate", 120.0)
+    if not db and is_admin:
+        await update.message.reply_text(
+            "⚠️ *ফায়ারবেস এখনো কনফিগার করা হয়নি!*\n"
+            "অ্যাডমিন প্যানেল থেকে *🔥 Setup Firebase*-এ ক্লিক করে আপনার `serviceAccountKey.json` ফাইলটি পাঠান।",
+            parse_mode="Markdown",
+            reply_markup=get_user_menu(is_admin)
+        )
+        return
 
-    if u_doc.exists:
-        u = u_doc.to_dict()
-        bdt = u.get("balance", 0.0)
-        usd = bdt / rate if rate > 0 else 0.0
+    await update.message.reply_text("✅ মূল মেনু:", reply_markup=get_user_menu(is_admin))
+
+# --- FIREBASE KEY UPLOADER (ADMIN) ---
+async def ask_firebase_json(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != SUPER_ADMIN_ID:
+        return ConversationHandler.END
+    await update.message.reply_text("📁 অনুগ্রহ করে Firebase-এর `serviceAccountKey.json` ফাইলটি ডকুমেন্ট হিসেবে পাঠান:")
+    return UPLOAD_FIREBASE_JSON
+
+async def save_firebase_json(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    doc = update.message.document
+    if not doc.file_name.endswith(".json"):
+        await update.message.reply_text("❌ এটি JSON ফাইল নয়। সঠিক ফাইল দিন।")
+        return UPLOAD_FIREBASE_JSON
+
+    file = await doc.get_file()
+    file_bytes = await file.download_as_bytearray()
+    try:
+        json.loads(file_bytes.decode("utf-8"))
+        with open(FIREBASE_KEY_PATH, "wb") as f:
+            f.write(file_bytes)
         
-        profile_text = (
-            f"👥 *USER PROFILE*\n"
-            f"━━━━━━━━━━━━━━━━━━━\n"
-            f"👤 *Name:* {u.get('name')}\n"
-            f"🆔 *ID:* `{user_id}`\n"
-            f"🌐 *Username:* @{u.get('username', 'N/A')}\n"
-            f"💳 *Balance:* {bdt:.1f} BDT ({usd:.2f} USD)\n"
-            f"📦 *Orders:* {u.get('orders', 0)}\n"
-            f"👑 *Status:* ✅ {u.get('status', 'Active')}"
-        ) # Matches visual profile design[span_7](start_span)[span_7](end_span)
-        await update.message.reply_text(profile_text, parse_mode="Markdown")
+        if load_firebase():
+            await update.message.reply_text("✅ Firebase সফলভাবে কানেক্ট হয়েছে এবং প্রস্তুত!", reply_markup=get_admin_menu())
+        else:
+            await update.message.reply_text("❌ ফাইলটি সেভ হয়েছে তবে Firebase অথেনটিকেশনে সমস্যা হচ্ছে।")
+    except Exception as e:
+        await update.message.reply_text(f"❌ এরর: {e}")
+    return ConversationHandler.END
 
-# ----------------- USER: BUY PRODUCTS -----------------
-async def buy_products_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Category selection inline keyboard[span_8](start_span)[span_8](end_span)
-    keyboard = [
+# --- ইউজার প্রোফাইল ও ফিচারস ---
+async def my_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not db:
+        await update.message.reply_text("❌ ডাটাবেজ অফলাইন।")
+        return
+    user_id = str(update.effective_user.id)
+    data = db.collection("users").document(user_id).get().to_dict() or {}
+    balance = data.get("balance", 0.0)
+    usd = balance / 120.0
+
+    msg = (
+        f"👥 *USER PROFILE*\n"
+        f"━━━━━━━━━━━━━━━━━━━\n"
+        f"👑 Name: {data.get('name', 'N/A')}\n"
+        f"🆔 ID: `{user_id}`\n"
+        f"🌐 Username: @{data.get('username', 'None')}\n"
+        f"💵 Balance: {balance:.1f} BDT ({usd:.2f} USD)\n"
+        f"🛒 Orders: {data.get('orders', 0)}\n"
+        f"💎 Status: {'🚫 Banned' if data.get('is_banned') else '✅ Active'}"
+    )
+    await update.message.reply_text(msg, parse_mode="Markdown")
+
+async def user_support(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    link = "https://t.me"
+    if db:
+        misc = db.collection("settings").document("misc").get().to_dict() or {}
+        link = misc.get("support_link", link)
+    await update.message.reply_text(f"💬 আমাদের সাপোর্ট হেল্পলাইনে যোগাযোগ করতে ক্লিক করুন:\n👉 {link}")
+
+async def user_tutorial(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    link = "https://youtube.com"
+    if db:
+        misc = db.collection("settings").document("misc").get().to_dict() or {}
+        link = misc.get("tutorial_link", link)
+    await update.message.reply_text(f"👑 টিউটোরিয়াল দেখতে এই লিংকে প্রবেশ করুন:\n👉 {link}")
+
+# --- ইউজার ডিপোজিট সিস্টেম ---
+async def user_deposit_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not db:
+        await update.message.reply_text("❌ ডাটাবেজ অফলাইন।")
+        return ConversationHandler.END
+    
+    settings = db.collection("settings").document("payments").get().to_dict() or {}
+    kb = [
+        [InlineKeyboardButton("Bkash", callback_data="paymeth_bkash"), InlineKeyboardButton("Nagad", callback_data="paymeth_nagad")],
+        [InlineKeyboardButton("Rocket", callback_data="paymeth_rocket"), InlineKeyboardButton("Binance (USDT)", callback_data="paymeth_binance")]
+    ]
+    msg = (
+        f"💳 *পেমেন্ট মেথড নির্বাচন করুন:*\n\n"
+        f"• বিকাশ (Personal): `{settings.get('bkash')}`\n"
+        f"• নগদ (Personal): `{settings.get('nagad')}`\n"
+        f"• রকেট (Personal): `{settings.get('rocket')}`\n"
+        f"• Binance Pay ID: `{settings.get('binance')}`\n\n"
+        f"💵 ডলার রেট: ১ USD = {settings.get('dollar_rate', 120.0)} BDT"
+    )
+    await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
+    return DEPOSIT_AMOUNT
+
+async def deposit_method_picked(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    method = query.data.replace("paymeth_", "")
+    context.user_data["dep_method"] = method
+    await query.edit_message_text(f"আপনি কত টাকা ডিপোজিট করতে চান (Amount in BDT) তা লিখে পাঠান:")
+    return DEPOSIT_AMOUNT
+
+async def deposit_amount_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        amt = float(update.message.text.strip())
+        context.user_data["dep_amount"] = amt
+    except ValueError:
+        await update.message.reply_text("❌ সঠিক সংখ্যা লিখুন:")
+        return DEPOSIT_AMOUNT
+
+    await update.message.reply_text("আপনার পেমেন্টের Transaction ID (TrxID) অথবা প্রুফ লিখে পাঠান:")
+    return DEPOSIT_TRX
+
+async def deposit_trx_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    trx = update.message.text.strip()
+    uid = str(update.effective_user.id)
+    amt = context.user_data.get("dep_amount")
+    method = context.user_data.get("dep_method")
+
+    req_ref = db.collection("deposit_requests").add({
+        "user_id": uid,
+        "amount": amt,
+        "method": method,
+        "trx": trx,
+        "status": "pending",
+        "created_at": firestore.SERVER_TIMESTAMP
+    })
+    req_id = req_ref[1].id
+
+    # সুপার অ্যাডমিনকে নোটিফিকেশন প্রদান
+    kb = [
         [
-            InlineKeyboardButton("📧 Hotmail", callback_data="buycat_Hotmail"),
-            InlineKeyboardButton("📧 Outlook", callback_data="buycat_Outlook")
-        ],
-        [
-            InlineKeyboardButton("📧 FR_Outlook", callback_data="buycat_FR_Outlook"),
-            InlineKeyboardButton("🔒 VPN", callback_data="buycat_VPN")
-        ],
-        [
-            InlineKeyboardButton("🌐 Proxy~IP", callback_data="buycat_Proxy~IP")
+            InlineKeyboardButton("✅ Approve", callback_data=f"depapp_{req_id}"),
+            InlineKeyboardButton("❌ Reject", callback_data=f"deprej_{req_id}")
         ]
     ]
-    await update.message.reply_text(
-        "🗂️ প্যাকেজ সিলেক্ট করুন",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+    try:
+        await context.bot.send_message(
+            chat_id=SUPER_ADMIN_ID,
+            text=f"🔔 *নতুন ডিপোজিট রিকোয়েস্ট!*\n\n"
+                 f"👤 User ID: `{uid}`\n"
+                 f"💰 Amount: {amt} BDT\n"
+                 f"💳 Method: {method}\n"
+                 f"🧾 TrxID: `{trx}`",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(kb)
+        )
+    except Exception as e:
+        logging.error(f"Failed to alert admin: {e}")
 
-async def user_category_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "✅ আপনার ডিপোজিট রিকোয়েস্টটি সফলভাবে জমা হয়েছে! অ্যাডমিন চেক করে অনুমোদন করলে ব্যালেন্স যোগ হবে।"
+    )
+    return ConversationHandler.END
+
+# --- ভাউচার / কোড সিস্টেম ---
+async def get_code_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("🏷️ আপনার ভাউচার কোডটি লিখে পাঠান:")
+    return REDEEM_VOUCHER
+
+async def redeem_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    code = update.message.text.strip()
+    user_id = str(update.effective_user.id)
+    if not db:
+        await update.message.reply_text("❌ ডাটাবেজ অফলাইন।")
+        return ConversationHandler.END
+
+    doc = db.collection("vouchers").document(code).get()
+    if not doc.exists:
+        await update.message.reply_text("❌ অবৈধ বা ভুল ভাউচার কোড!")
+        return ConversationHandler.END
+
+    v_data = doc.to_dict()
+    if v_data.get("used"):
+        await update.message.reply_text("❌ এই ভাউচার কোডটি ইতিমধ্যে ব্যবহার করা হয়েছে।")
+        return ConversationHandler.END
+
+    amount = v_data.get("amount", 0.0)
+    doc.reference.update({"used": True, "used_by": user_id})
+    db.collection("users").document(user_id).update({"balance": firestore.Increment(amount)})
+
+    await update.message.reply_text(f"🎉 অভিনন্দন! আপনার একাউন্টে {amount:.1f} BDT ব্যালেন্স যুক্ত হয়েছে।")
+    return ConversationHandler.END
+
+# --- প্রোডাক্ট ক্রয় ও ক্যাটালগ ---
+async def buy_products_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        [InlineKeyboardButton("📧 Hotmail", callback_data="buycat_Hotmail"),
+         InlineKeyboardButton("📧 Outlook", callback_data="buycat_Outlook")],
+        [InlineKeyboardButton("📧 FR_Outlook", callback_data="buycat_FR_Outlook"),
+         InlineKeyboardButton("🔒 VPN", callback_data="buycat_VPN")],
+        [InlineKeyboardButton("🌐 Proxy~IP", callback_data="buycat_Proxy~IP")]
+    ]
+    await update.message.reply_text("🗂️ প্যাকেজ সিলেক্ট করুন", reply_markup=InlineKeyboardMarkup(keyboard))
+
+async def handle_buy_cat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     category = query.data.replace("buycat_", "")
 
-    # Query active products under category
-    docs = fs.collection("products").where("category", "==", category).stream()
-    buttons = []
-    
-    for doc in docs:
-        p = doc.to_dict()
-        pid = doc.id
-        # Count available stock items
-        stock_count = len(list(fs.collection("products").document(pid).collection("items").stream()))
-        btn_text = f"🌐 {p.get('name')} | {p.get('price', 0):.1f}৳ | Stock: {stock_count}"
-        buttons.append([InlineKeyboardButton(btn_text, callback_data=f"buyitem_{pid}")])
-
-    if not buttons:
-        await query.edit_message_text(f"❌ {category} ক্যাটাগরিতে বর্তমানে কোনো প্রোডাক্ট নেই।")
+    if not db:
+        await query.edit_message_text("❌ ডাটাবেজ অফলাইন।")
         return
 
-    await query.edit_message_text(
-        f"Available {category}:",
-        reply_markup=InlineKeyboardMarkup(buttons)
-    )
-
-async def user_buy_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    user_id = query.from_user.id
-    pid = query.data.replace("buyitem_", "")
-
-    p_ref = fs.collection("products").document(pid)
-    p_doc = p_ref.get()
-    if not p_doc.exists:
-        await query.answer("❌ প্রোডাক্ট পাওয়া যায়নি!", show_alert=True)
-        return
-
-    p_data = p_doc.to_dict()
-    price = float(p_data.get("price", 0))
-
-    # Fetch 1 stock item from subcollection
-    stock_items = list(p_ref.collection("items").limit(1).stream())
-    if not stock_items:
-        await query.answer("❌ Out of stock!", show_alert=True)
-        return
-
-    # Check user balance
-    u_ref = fs.collection("users").document(str(user_id))
-    u_doc = u_ref.get()
-    balance = u_doc.to_dict().get("balance", 0.0) if u_doc.exists else 0.0
-
-    if balance < price:
-        await query.answer("❌ পর্যাপ্ত ব্যালেন্স নেই! দয়া করে ডিপোজিট করুন।", show_alert=True)
-        return
-
-    item_to_deliver = stock_items[0]
-    secret_data = item_to_deliver.to_dict().get("data", "")
-
-    # Execute atomic transaction updates
-    u_ref.update({
-        "balance": firestore.Increment(-price),
-        "orders": firestore.Increment(1)
-    })
-    # Remove from inventory
-    p_ref.collection("items").document(item_to_deliver.id).delete()
-
-    await query.edit_message_text(
-        f"✅ *ক্রয় সফল হয়েছে!*\n\n"
-        f"📦 পণ্য: *{p_data.get('name')}*\n"
-        f"💰 মূল্য: *{price:.1f} BDT*\n\n"
-        f"🔑 *ডেলিভারি ডাটা:*\n`{secret_data}`",
-        parse_mode="Markdown"
-    )
-
-# ----------------- ADMIN DASHBOARD -----------------
-async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id):
-        return
-    await update.message.reply_text("👑 Welcome Admin", reply_markup=get_admin_menu())[span_9](start_span)[span_9](end_span)
-
-async def live_stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    products = list(fs.collection("products").stream())
-    if not products:
-        await update.message.reply_text("🌐 *Live Stock*\n\nকোনো পণ্য যুক্ত করা হয়নি।", parse_mode="Markdown")
-        return
-
-    msg = "🌐 *Live Stock*\n\n" # Matches Live Stock report view[span_10](start_span)[span_10](end_span)
-    for p in products:
-        d = p.to_dict()
-        count = len(list(fs.collection("products").document(p.id).collection("items").stream()))
-        msg += (
-            f"📦 *{d.get('name')}* | Price: {d.get('price', 0):.1f}৳\n"
-            f"(Reseller: {d.get('reseller_price', 0):.1f}৳) | Stock: {count}\n\n"
-        )
-    await update.message.reply_text(msg, parse_mode="Markdown")
-
-# ----------------- ADMIN: PRODUCT MANAGEMENT & DELETION -----------------
-async def product_management_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id):
-        return
-    kb = [
-        [
-            InlineKeyboardButton("👑 Add Normal Product", callback_data="adm_add_normal"),
-            InlineKeyboardButton("🗂️ Add API Product", callback_data="adm_add_api")
-        ],
-        [InlineKeyboardButton("💰 Change Price", callback_data="adm_change_price")],
-        [InlineKeyboardButton("❌ Delete Product", callback_data="adm_del_product")],
-        [InlineKeyboardButton("🧨 Delete Product Stock", callback_data="adm_del_stock")]
-    ]
-    await update.message.reply_text(
-        "⚙️ *Product Management:*",
-        reply_markup=InlineKeyboardMarkup(kb),
-        parse_mode="Markdown"
-    )
-
-async def admin_delete_product_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    # As shown in the deletion prompt[span_11](start_span)[span_11](end_span)
-    keyboard = [
-        [
-            InlineKeyboardButton("📧 Hotmail", callback_data="delcat_Hotmail"),
-            InlineKeyboardButton("📧 Outlook", callback_data="delcat_Outlook")
-        ],
-        [
-            InlineKeyboardButton("📧 FR_Outlook", callback_data="delcat_FR_Outlook"),
-            InlineKeyboardButton("🔒 VPN", callback_data="delcat_VPN")
-        ],
-        [
-            InlineKeyboardButton("🌐 Proxy~IP", callback_data="delcat_Proxy~IP")
-        ]
-    ]
-    await query.edit_message_text(
-        "❌ কোন ক্যাটাগরি থেকে প্রোডাক্ট ডিলিট করবেন?",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )[span_12](start_span)[span_12](end_span)
-
-async def admin_delete_product_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    category = query.data.replace("delcat_", "")
-
-    products = list(fs.collection("products").where("category", "==", category).stream())
-    if not products:
+    prods = db.collection("products").where("cat", "==", category).get()
+    if not prods:
         await query.edit_message_text(f"❌ {category} ক্যাটাগরিতে কোনো পণ্য নেই।")
         return
 
     buttons = []
-    for doc in products:
-        d = doc.to_dict()
-        buttons.append([InlineKeyboardButton(f"❌ {d.get('name')}", callback_data=f"confirmdel_{doc.id}")]) #[span_13](start_span)[span_13](end_span)
+    for p in prods:
+        p_data = p.to_dict()
+        stock_count = len(p.reference.collection("stocks").get())
+        text = f"🌐 {p_data['name']} | {p_data['price']:.1f}৳ | Stock: {stock_count}"
+        buttons.append([InlineKeyboardButton(text, callback_data=f"order_{p.id}")])
+
+    await query.edit_message_text(f"Available {category}:", reply_markup=InlineKeyboardMarkup(buttons))
+
+async def handle_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user_id = str(query.from_user.id)
+    prod_id = query.data.replace("order_", "")
+
+    user_ref = db.collection("users").document(user_id)
+    user_doc = user_ref.get().to_dict() or {}
+    if user_doc.get("is_banned"):
+        await query.answer("🚫 আপনার অ্যাকাউন্ট ব্যান করা রয়েছে!", show_alert=True)
+        return
+
+    prod_ref = db.collection("products").document(prod_id)
+    prod_doc = prod_ref.get().to_dict()
+    if not prod_doc:
+        await query.answer("❌ পণ্যটি পাওয়া যায়নি!", show_alert=True)
+        return
+
+    stock_query = prod_ref.collection("stocks").limit(1).get()
+    if not stock_query:
+        await query.answer("❌ দুঃখিত, স্টক শেষ!", show_alert=True)
+        return
+
+    price = prod_doc["reseller"] if user_doc.get("is_reseller") else prod_doc["price"]
+    if user_doc.get("balance", 0.0) < price:
+        await query.answer("❌ পর্যাপ্ত ব্যালেন্স নেই! দয়া করে ডিপোজিট করুন।", show_alert=True)
+        return
+
+    stock_item = stock_query[0]
+    stock_data = stock_item.to_dict().get("data")
+    stock_item.reference.delete()
+
+    user_ref.update({
+        "balance": firestore.Increment(-price),
+        "orders": firestore.Increment(1)
+    })
 
     await query.edit_message_text(
-        "❌ কোন প্রোডাক্টটি ডিলিট করবেন?",
-        reply_markup=InlineKeyboardMarkup(buttons)
-    )[span_14](start_span)[span_14](end_span)
-
-async def admin_confirm_delete_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    pid = query.data.replace("confirmdel_", "")
-    
-    # Delete subcollection items
-    items = fs.collection("products").document(pid).collection("items").stream()
-    for it in items:
-        it.reference.delete()
-        
-    fs.collection("products").document(pid).delete()
-    await query.answer("প্রোডাক্ট ডিলিট করা হয়েছে!", show_alert=True)
-    await query.edit_message_text("✅ প্রোডাক্ট এবং এর সকল স্টক সম্পূর্ণ ডিলিট করা হয়েছে।")
-
-# ----------------- ADMIN: STOCK UPLOAD (CONVERSATION) -----------------
-async def start_add_stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id):
-        return ConversationHandler.END
-
-    keyboard = [
-        [
-            InlineKeyboardButton("📧 Hotmail", callback_data="stkcat_Hotmail"),
-            InlineKeyboardButton("📧 Outlook", callback_data="stkcat_Outlook")
-        ],
-        [
-            InlineKeyboardButton("📧 FR_Outlook", callback_data="stkcat_FR_Outlook"),
-            InlineKeyboardButton("🌐 Proxy~IP", callback_data="stkcat_Proxy~IP")
-        ]
-    ]
-    await update.message.reply_text(
-        "🗂️ কোন ক্যাটাগরিতে স্টক অ্যাড করবেন?",
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        f"✅ ক্রয় সফল হয়েছে!\n\n"
+        f"📦 পণ্য: *{prod_doc['name']}*\n"
+        f"💰 কর্তন: *{price:.1f} BDT*\n\n"
+        f"🔑 বিবরণ / ডেলিভারি:\n`{stock_data}`",
+        parse_mode="Markdown"
     )
 
-async def stock_select_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# --- অ্যাডমিন প্যানেল এবং ফিচারসমূহ ---
+async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_admin(update.effective_user.id):
+        return
+    await update.message.reply_text("👑 Welcome Admin", reply_markup=get_admin_menu())
+
+async def live_stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not db:
+        await update.message.reply_text("❌ Firebase এখনো সেটআপ করা হয়নি!")
+        return
+    prods = db.collection("products").get()
+    msg = "🌐 *Live Stock*\n\n"
+    for p in prods:
+        d = p.to_dict()
+        count = len(p.reference.collection("stocks").get())
+        msg += f"📦 *{d['name']}* | Price: {d['price']:.1f}৳\n(Reseller: {d.get('reseller', d['price']):.1f}৳) | Stock: {count}\n\n"
+    await update.message.reply_text(msg, parse_mode="Markdown")
+
+# --- বাল্ক স্টক আপলোড (TXT / XLSX) ---
+async def add_stock_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_admin(update.effective_user.id):
+        return
+    if not db:
+        await update.message.reply_text("❌ Firebase সেটআপ নেই!")
+        return
+    keyboard = [
+        [InlineKeyboardButton("📧 Hotmail", callback_data="stockcat_Hotmail"),
+         InlineKeyboardButton("📧 Outlook", callback_data="stockcat_Outlook")],
+        [InlineKeyboardButton("📧 FR_Outlook", callback_data="stockcat_FR_Outlook"),
+         InlineKeyboardButton("🌐 Proxy~IP", callback_data="stockcat_Proxy~IP")]
+    ]
+    await update.message.reply_text("🗂️ কোন ক্যাটাগরিতে স্টক অ্যাড করবেন?", reply_markup=InlineKeyboardMarkup(keyboard))
+
+async def handle_stock_cat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    cat = query.data.replace("stkcat_", "")
+    category = query.data.replace("stockcat_", "")
 
-    products = list(fs.collection("products").where("category", "==", cat).stream())
-    if not products:
-        await query.edit_message_text(f"❌ {cat} ক্যাটাগরিতে কোনো প্রোডাক্ট পাওয়া যায়নি।")
-        return ConversationHandler.END
+    prods = db.collection("products").where("cat", "==", category).get()
+    buttons = [[InlineKeyboardButton(p.to_dict()["name"], callback_data=f"upstock_{p.id}")] for p in prods]
+    await query.edit_message_text(f"পণ্য সিলেক্ট করুন ({category}):", reply_markup=InlineKeyboardMarkup(buttons))
 
-    buttons = [[InlineKeyboardButton(p.to_dict().get("name"), callback_data=f"stkprod_{p.id}")] for p in products]
-    await query.edit_message_text("পণ্য সিলেক্ট করুন:", reply_markup=InlineKeyboardMarkup(buttons))
-
-async def stock_select_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_prepare_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    pid = query.data.replace("stkprod_", "")
-    context.user_data["target_pid"] = pid
+    prod_id = query.data.replace("upstock_", "")
+    context.user_data["upload_prod_id"] = prod_id
 
-    p_doc = fs.collection("products").document(pid).get()
-    pname = p_doc.to_dict().get("name", "Product") if p_doc.exists else "Product"
-
+    prod_name = db.collection("products").document(prod_id).get().to_dict().get("name")
     instruction = (
-        f"🗂️ *{pname}* এর জন্য Excel (.xlsx) অথবা Text (.txt) ফাইলটি পাঠান:\n\n"
+        f"🗂️ *{prod_name}* এর জন্য Excel (.xlsx) অথবা Text (.txt) ফাইলটি পাঠান:\n\n"
         f"📌 *আপলোডের সঠিক ফরম্যাট:*\n"
         f"✏️ *TXT ফাইল হলে:*\n"
         f"`Host:Port:Username:Password` (মাঝে : থাকবে)\n\n"
@@ -387,248 +492,672 @@ async def stock_select_product(update: Update, context: ContextTypes.DEFAULT_TYP
         f"• কলাম B = Port\n"
         f"• কলাম C = Username\n"
         f"• কলাম D = Password"
-    ) # Format instruction[span_15](start_span)[span_15](end_span)
+    )
     await query.edit_message_text(instruction, parse_mode="Markdown")
     return UPLOAD_STOCK
 
-async def parse_and_upload_stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def process_stock_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     doc = update.message.document
-    pid = context.user_data.get("target_pid")
-
-    if not pid:
-        await update.message.reply_text("❌ সেশন মেয়াদোত্তীর্ণ হয়েছে। পুনরায় চেষ্টা করুন।")
+    prod_id = context.user_data.get("upload_prod_id")
+    if not prod_id or not db:
+        await update.message.reply_text("❌ ত্রুটি ঘটেছে।")
         return ConversationHandler.END
 
     file = await doc.get_file()
     file_bytes = await file.download_as_bytearray()
     entries = []
 
-    # Parse plain TXT
     if doc.file_name.endswith(".txt"):
         lines = file_bytes.decode("utf-8", errors="ignore").splitlines()
         for line in lines:
-            clean = line.strip()
-            if clean:
-                entries.append(clean)
-
-    # Parse Excel (.xlsx)
+            line = line.strip()
+            if line:
+                entries.append(line)
     elif doc.file_name.endswith(".xlsx"):
         wb = openpyxl.load_workbook(filename=io.BytesIO(file_bytes), data_only=True)
         sheet = wb.active
         for row in sheet.iter_rows(values_only=True):
             if any(row):
-                # Columns A, B, C, D joined by ':'
-                row_vals = [str(col).strip() for col in row[:4] if col is not None]
-                if len(row_vals) == 4:
-                    entries.append(":".join(row_vals))
+                line = ":".join(str(cell).strip() for cell in row[:4] if cell is not None)
+                entries.append(line)
 
-    if not entries:
-        await update.message.reply_text("❌ ফাইলে কোনো ডাটা পাওয়া যায়নি অথবা কলাম বিন্যাস ভুল।")
-        return ConversationHandler.END
+    if entries:
+        prod_ref = db.collection("products").document(prod_id)
+        batch = db.batch()
+        for item in entries:
+            ref = prod_ref.collection("stocks").document()
+            batch.set(ref, {"data": item})
+        batch.commit()
 
-    # Push to Firebase Firestore in batches
-    batch = fs.batch()
-    items_ref = fs.collection("products").document(pid).collection("items")
-    count = 0
-
-    for item_data in entries:
-        new_doc = items_ref.document()
-        batch.set(new_doc, {"data": item_data, "added_at": firestore.SERVER_TIMESTAMP})
-        count += 1
-        if count % 400 == 0:  # Firestore batch limit is 500
-            batch.commit()
-            batch = fs.batch()
-    batch.commit()
-
-    await update.message.reply_text(
-        f"✅ মোট {len(entries)} টি স্টক সফলভাবে Firebase এ সেভ হয়েছে!",
-        reply_markup=get_admin_menu()
-    )
+        await update.message.reply_text(
+            f"✅ মোট {len(entries)} টি স্টক সফলভাবে Firebase এ আপলোড করা হয়েছে!",
+            reply_markup=get_admin_menu()
+        )
+    else:
+        await update.message.reply_text("❌ ফাইলে কোনো ডাটা পাওয়া যায়নি।")
     return ConversationHandler.END
 
-# ----------------- ADMIN: PAYMENT SETTINGS -----------------
-async def payment_settings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id):
+# --- প্রোডাক্ট ম্যানেজমেন্ট (Add / Delete / Price / Delete Stock) ---
+async def product_management_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_admin(update.effective_user.id):
         return
-    settings = fs.collection("system").document("settings").get().to_dict() or {}
-    rate = settings.get("dollar_rate", 120.0)
-
-    # Matches payment gateway buttons[span_16](start_span)[span_16](end_span)
     kb = [
-        [InlineKeyboardButton("🪶 Edit Bkash Number", callback_data="payedit_bkash")],
-        [InlineKeyboardButton("🪶 Edit Nagad Number", callback_data="payedit_nagad")],
-        [InlineKeyboardButton("🪶 Edit Rocket Number", callback_data="payedit_rocket")],
-        [InlineKeyboardButton("🪶 Edit Binance Number", callback_data="payedit_binance")],
-        [InlineKeyboardButton(f"🪙 Edit Dollar Rate (Current: {rate:.1f} BDT)", callback_data="payedit_dollar_rate")],
+        [InlineKeyboardButton("👑 Add Normal Product", callback_data="prodman_add"),
+         InlineKeyboardButton("🗂️ Add API Product", callback_data="prodman_addapi")],
+        [InlineKeyboardButton("💰 Change Price", callback_data="prodman_chprice")],
+        [InlineKeyboardButton("❌ Delete Product", callback_data="prodman_delprod")],
+        [InlineKeyboardButton("🧨 Delete Product Stock", callback_data="prodman_delstock")],
     ]
-    await update.message.reply_text(
-        "⚙️ *কোন পেমেন্ট মেথডের নাম্বার পরিবর্তন করবেন?*",
-        reply_markup=InlineKeyboardMarkup(kb),
-        parse_mode="Markdown"
-    )[span_17](start_span)[span_17](end_span)
+    await update.message.reply_text("⚙️ *Product Management:*", reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
 
-async def select_payment_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_prodman_actions(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    key = query.data.replace("payedit_", "")
-    context.user_data["edit_field"] = key
+    act = query.data.replace("prodman_", "")
 
-    await query.edit_message_text(f"নতুন মান লিখুন `{key}` এর জন্য:", parse_mode="Markdown")
-    return EDIT_SETTING
+    if act == "add":
+        kb = [
+            [InlineKeyboardButton("📧 Hotmail", callback_data="setcat_Hotmail"), InlineKeyboardButton("📧 Outlook", callback_data="setcat_Outlook")],
+            [InlineKeyboardButton("📧 FR_Outlook", callback_data="setcat_FR_Outlook"), InlineKeyboardButton("🔒 VPN", callback_data="setcat_VPN")],
+            [InlineKeyboardButton("🌐 Proxy~IP", callback_data="setcat_Proxy~IP")]
+        ]
+        await query.edit_message_text("কোন ক্যাটাগরিতে প্রোডাক্ট অ্যাড করবেন?", reply_markup=InlineKeyboardMarkup(kb))
+        return ADD_PROD_CAT
 
-async def save_payment_setting(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    val = update.message.text.strip()
-    key = context.user_data.get("edit_field")
+    elif act == "delprod":
+        prods = db.collection("products").get()
+        kb = [[InlineKeyboardButton(f"❌ {p.to_dict()['name']}", callback_data=f"delp_{p.id}")] for p in prods]
+        await query.edit_message_text("❌ কোন প্রোডাক্টটি ডিলিট করবেন?", reply_markup=InlineKeyboardMarkup(kb))
 
-    if key == "dollar_rate":
-        try:
-            val = float(val)
-        except ValueError:
-            await update.message.reply_text("❌ অনুগ্রহ করে সঠিক সংখ্যা লিখুন।")
-            return EDIT_SETTING
+    elif act == "delstock":
+        prods = db.collection("products").get()
+        kb = [[InlineKeyboardButton(f"🧨 Clear {p.to_dict()['name']}", callback_data=f"clearstock_{p.id}")] for p in prods]
+        await query.edit_message_text("🧨 কার সব স্টক খালি করতে চান?", reply_markup=InlineKeyboardMarkup(kb))
 
-    fs.collection("system").document("settings").update({key: val})
-    await update.message.reply_text(f"✅ `{key}` সফলভাবে আপডেট করা হয়েছে!", parse_mode="Markdown", reply_markup=get_admin_menu())
+    elif act == "chprice":
+        prods = db.collection("products").get()
+        kb = [[InlineKeyboardButton(f"✏️ {p.to_dict()['name']}", callback_data=f"chpr_{p.id}")] for p in prods]
+        await query.edit_message_text("কোন প্রোডাক্টের দাম পরিবর্তন করবেন?", reply_markup=InlineKeyboardMarkup(kb))
+        return CHANGE_PRICE_SELECT
+
+async def save_add_prod_cat(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    cat = query.data.replace("setcat_", "")
+    context.user_data["new_prod_cat"] = cat
+    await query.edit_message_text(f"ক্যাটাগরি: {cat}\nএবার প্রোডাক্টের নাম লিখে পাঠান:")
+    return ADD_PROD_NAME
+
+async def save_add_prod_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    name = update.message.text.strip()
+    context.user_data["new_prod_name"] = name
+    await update.message.reply_text("প্রোডাক্টের সাধারণ মূল্য (Price in BDT) ও রিসেলার মূল্য স্পেস দিয়ে লিখুন:\nউদাহরণ: `50 45`")
+    return ADD_PROD_PRICE
+
+async def save_add_prod_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        parts = update.message.text.strip().split()
+        price = float(parts[0])
+        reseller = float(parts[1]) if len(parts) > 1 else price
+    except Exception:
+        await update.message.reply_text("❌ সঠিক ফরম্যাটে সংখ্যা লিখুন (যেমন: 50 45):")
+        return ADD_PROD_PRICE
+
+    db.collection("products").add({
+        "cat": context.user_data.get("new_prod_cat"),
+        "name": context.user_data.get("new_prod_name"),
+        "price": price,
+        "reseller": reseller
+    })
+    await update.message.reply_text("✅ নতুন প্রোডাক্ট সফলভাবে যোগ করা হয়েছে!", reply_markup=get_admin_menu())
     return ConversationHandler.END
 
-# ----------------- ADMIN: USER MANAGEMENT -----------------
-async def user_management_entry(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id):
-        return ConversationHandler.END
-    await update.message.reply_text("👥 ইউজারের টেলিগ্রাম ID বা Username দিন:")[span_18](start_span)[span_18](end_span)
+async def delete_single_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    pid = query.data.replace("delp_", "")
+    db.collection("products").document(pid).delete()
+    await query.edit_message_text("✅ প্রোডাক্টটি ডিলিট করা হয়েছে!")
+
+async def clear_product_stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    pid = query.data.replace("clearstock_", "")
+    stocks = db.collection("products").document(pid).collection("stocks").get()
+    batch = db.batch()
+    for s in stocks:
+        batch.delete(s.reference)
+    batch.commit()
+    await query.edit_message_text("✅ সব স্টক ডিলিট করা হয়েছে!")
+
+async def select_prod_for_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    pid = query.data.replace("chpr_", "")
+    context.user_data["ch_prod_id"] = pid
+    await query.edit_message_text("নতুন সাধারণ মূল্য ও রিসেলার মূল্য লিখে পাঠান (যেমন: 60 55):")
+    return CHANGE_PRICE_VAL
+
+async def save_new_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        parts = update.message.text.strip().split()
+        price = float(parts[0])
+        reseller = float(parts[1]) if len(parts) > 1 else price
+    except Exception:
+        await update.message.reply_text("❌ সঠিক সংখ্যা লিখুন:")
+        return CHANGE_PRICE_VAL
+
+    pid = context.user_data.get("ch_prod_id")
+    db.collection("products").document(pid).update({"price": price, "reseller": reseller})
+    await update.message.reply_text("✅ পণ্যের মূল্য আপডেট হয়েছে!", reply_markup=get_admin_menu())
+    return ConversationHandler.END
+
+# --- ইউজার ম্যানেজমেন্ট সিস্টেম ---
+async def user_management(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_admin(update.effective_user.id):
+        return
+    await update.message.reply_text("👥 ইউজারের টেলিগ্রাম ID বা Username দিন:")
     return FIND_USER
 
-async def handle_user_lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    search_query = update.message.text.strip().replace("@", "")
-    target_doc = None
+async def search_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.message.text.strip().replace("@", "")
+    target_user, target_id = None, None
 
-    if search_query.isdigit():
-        target_doc = fs.collection("users").document(search_query).get()
-    
-    if not target_doc or not target_doc.exists:
-        # Search by username attribute
-        matches = list(fs.collection("users").where("username", "==", search_query).limit(1).stream())
-        if matches:
-            target_doc = matches[0]
+    if query.isdigit():
+        doc = db.collection("users").document(query).get()
+        if doc.exists:
+            target_user = doc.to_dict()
+            target_id = query
+    else:
+        results = db.collection("users").where("username", "==", query).limit(1).get()
+        if results:
+            target_user = results[0].to_dict()
+            target_id = results[0].id
 
-    if not target_doc or not target_doc.exists:
+    if not target_user:
         await update.message.reply_text("❌ ইউজার খুঁজে পাওয়া যায়নি।")
         return ConversationHandler.END
 
-    u = target_doc.to_dict()
-    uid = target_doc.id
-    settings = fs.collection("system").document("settings").get().to_dict() or {}
-    rate = settings.get("dollar_rate", 120.0)
-    bdt = u.get("balance", 0.0)
-    usd = bdt / rate if rate > 0 else 0.0
+    context.user_data["target_uid"] = target_id
+    balance = target_user.get("balance", 0.0)
+    usd = balance / 120.0
+    status = "Banned" if target_user.get("is_banned") else "Active"
 
-    profile_card = (
+    card = (
         f"👥 *USER PROFILE*\n"
         f"━━━━━━━━━━━━━━━━━━━\n"
-        f"👤 *Name:* {u.get('name')}\n"
-        f"🆔 *ID:* `{uid}`\n"
-        f"🌐 *Username:* @{u.get('username', 'N/A')}\n"
-        f"💳 *Balance:* {bdt:.1f} BDT ({usd:.2f} USD)\n"
-        f"📦 *Orders:* {u.get('orders', 0)}\n"
-        f"👑 *Status:* ✅ {u.get('status', 'Active')}"
-    ) #[span_19](start_span)[span_19](end_span)
+        f"👑 Name: {target_user.get('name', 'N/A')}\n"
+        f"🆔 ID: `{target_id}`\n"
+        f"🌐 Username: @{target_user.get('username', 'None')}\n"
+        f"💵 Balance: {balance:.1f} BDT ({usd:.2f} USD)\n"
+        f"🛒 Orders: {target_user.get('orders', 0)}\n"
+        f"💎 Status: {'🚫' if status == 'Banned' else '✅'} {status}"
+    )
 
     kb = [
-        [InlineKeyboardButton("🚫 Ban", callback_data=f"uban_{uid}")],
-        [
-            InlineKeyboardButton("💰 Add Balance", callback_data=f"uadd_{uid}"),
-            InlineKeyboardButton("✂️ Cut Balance", callback_data=f"ucut_{uid}")
-        ],
-        [InlineKeyboardButton("💬 Send Message", callback_data=f"umsg_{uid}")]
-    ] #[span_20](start_span)[span_20](end_span)
-
-    await update.message.reply_text(profile_card, reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
+        [InlineKeyboardButton("🚫 Ban / Unban", callback_data=f"uact_ban_{target_id}")],
+        [InlineKeyboardButton("➕ Add Balance", callback_data=f"uact_add_{target_id}"),
+         InlineKeyboardButton("➖ Cut Balance", callback_data=f"uact_cut_{target_id}")],
+        [InlineKeyboardButton("✉️ Send Message", callback_data=f"uact_msg_{target_id}")]
+    ]
+    await update.message.reply_text(card, reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
     return ConversationHandler.END
 
-# ----------------- ADMIN: DEPOSIT REQUESTS -----------------
-async def deposit_requests_view(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id):
+async def user_actions_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    action, uid = query.data.replace("uact_", "").split("_")
+    context.user_data["action_uid"] = uid
+
+    if action == "ban":
+        ref = db.collection("users").document(uid)
+        curr = ref.get().to_dict().get("is_banned", False)
+        ref.update({"is_banned": not curr})
+        await query.edit_message_text(f"✅ User ID {uid} এর ব্যান স্ট্যাটাস পরিবর্তন হয়েছে: {not curr}")
+        return ConversationHandler.END
+    elif action in ["add", "cut"]:
+        context.user_data["bal_op"] = action
+        await query.edit_message_text("টাকার পরিমাণ (Amount in BDT) লিখে পাঠান:")
+        return USER_ACTION_AMOUNT
+    elif action == "msg":
+        await query.edit_message_text(f"ইউজারকে পাঠানোর মেসেজটি লিখে পাঠান:")
+        return USER_SEND_MSG
+
+async def apply_user_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        amt = float(update.message.text.strip())
+    except ValueError:
+        await update.message.reply_text("❌ সঠিক সংখ্যা লিখুন:")
+        return USER_ACTION_AMOUNT
+
+    uid = context.user_data.get("action_uid")
+    op = context.user_data.get("bal_op")
+    delta = amt if op == "add" else -amt
+
+    db.collection("users").document(uid).update({"balance": firestore.Increment(delta)})
+    await update.message.reply_text(f"✅ ইউজার {uid} এর একাউন্টে {amt} BDT {'যুক্ত' if op == 'add' else 'কর্তন'} হয়েছে।", reply_markup=get_admin_menu())
+    return ConversationHandler.END
+
+async def send_user_direct_msg(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = context.user_data.get("action_uid")
+    msg_text = update.message.text
+    try:
+        await context.bot.send_message(chat_id=int(uid), text=f"📩 *অ্যাডমিন থেকে বার্তা:*\n\n{msg_text}", parse_mode="Markdown")
+        await update.message.reply_text("✅ মেসেজ সফলভাবে পাঠানো হয়েছে!", reply_markup=get_admin_menu())
+    except Exception as e:
+        await update.message.reply_text(f"❌ মেসেজ পাঠানো যায়নি: {e}")
+    return ConversationHandler.END
+
+# --- ডিপোজিট ম্যানেজমেন্ট (Admin Approve / Reject / History) ---
+async def show_deposit_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_admin(update.effective_user.id):
         return
-    reqs = list(fs.collection("deposits").where("status", "==", "pending").stream())
+    reqs = db.collection("deposit_requests").where("status", "==", "pending").get()
     if not reqs:
-        await update.message.reply_text("❌ কোনো পেন্ডিং ডিপোজিট নেই।")[span_21](start_span)[span_21](end_span)
+        await update.message.reply_text("❌ কোনো পেন্ডিং ডিপোজিট নেই।")
         return
 
-    for doc in reqs:
-        d = doc.to_dict()
-        msg = f"🔔 *Deposit Request:*\nUser: `{d.get('user_id')}`\nAmount: {d.get('amount')} BDT\nTxID: `{d.get('trxid')}`"
-        kb = [
-            [
-                InlineKeyboardButton("✅ Approve", callback_data=f"apprdep_{doc.id}"),
-                InlineKeyboardButton("❌ Reject", callback_data=f"rejdep_{doc.id}")
-            ]
-        ]
-        await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
+    for r in reqs:
+        d = r.to_dict()
+        kb = [[InlineKeyboardButton("✅ Approve", callback_data=f"depapp_{r.id}"),
+               InlineKeyboardButton("❌ Reject", callback_data=f"deprej_{r.id}")]]
+        await update.message.reply_text(
+            f"🔔 *পেন্ডিং ডিপোজিট:*\n"
+            f"👤 User: `{d['user_id']}`\n"
+            f"💰 Amount: {d['amount']} BDT\n"
+            f"💳 Method: {d['method']}\n"
+            f"🧾 Trx: `{d['trx']}`",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(kb)
+        )
 
-# ----------------- CANCEL CONVERSATION -----------------
-async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("অপারেশন বাতিল করা হয়েছে।", reply_markup=get_user_menu(update.effective_user.id))
+async def handle_deposit_decide(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    act, req_id = query.data.split("_")
+    ref = db.collection("deposit_requests").document(req_id)
+    doc = ref.get()
+    if not doc.exists:
+        await query.edit_message_text("❌ রিকোয়েস্ট পাওয়া যায়নি।")
+        return
+
+    data = doc.to_dict()
+    if data["status"] != "pending":
+        await query.edit_message_text("⚠️ এটি আগেই প্রসেস করা হয়েছে।")
+        return
+
+    if act == "depapp":
+        ref.update({"status": "approved"})
+        db.collection("users").document(data["user_id"]).update({"balance": firestore.Increment(data["amount"])})
+        try:
+            await context.bot.send_message(
+                chat_id=int(data["user_id"]),
+                text=f"✅ আপনার {data['amount']} BDT ডিপোজিট সফলভাবে অনুমোদিত হয়েছে!"
+            )
+        except Exception:
+            pass
+        await query.edit_message_text(f"✅ Approved: {data['amount']} BDT for `{data['user_id']}`")
+    else:
+        ref.update({"status": "rejected"})
+        try:
+            await context.bot.send_message(
+                chat_id=int(data["user_id"]),
+                text=f"❌ আপনার {data['amount']} BDT ডিপোজিট বাতিল করা হয়েছে।"
+            )
+        except Exception:
+            pass
+        await query.edit_message_text(f"❌ Rejected: {data['amount']} BDT")
+
+async def deposit_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_admin(update.effective_user.id):
+        return
+    history = db.collection("deposit_requests").order_by("created_at", direction=firestore.Query.DESCENDING).limit(10).get()
+    if not history:
+        await update.message.reply_text("হিস্ট্রিতে কোনো তথ্য পাওয়া যায়নি।")
+        return
+    msg = "⚙️ *সাম্প্রতিক ডিপোজিট হিস্ট্রি:*\n\n"
+    for h in history:
+        d = h.to_dict()
+        msg += f"• `{d['user_id']}` | {d['amount']} BDT | {d['method']} | {d['status'].upper()}\n"
+    await update.message.reply_text(msg, parse_mode="Markdown")
+
+# --- পেমেন্ট সেটিংস কনফিগারেশন ---
+async def payment_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_admin(update.effective_user.id):
+        return
+    data = db.collection("settings").document("payments").get().to_dict() or {}
+    rate = data.get("dollar_rate", 120.0)
+
+    keyboard = [
+        [InlineKeyboardButton("Edit Bkash Number", callback_data="payedit_bkash")],
+        [InlineKeyboardButton("Edit Nagad Number", callback_data="payedit_nagad")],
+        [InlineKeyboardButton("Edit Rocket Number", callback_data="payedit_rocket")],
+        [InlineKeyboardButton("Edit Binance Number", callback_data="payedit_binance")],
+        [InlineKeyboardButton(f"Edit Dollar Rate (Current: {rate:.1f} BDT)", callback_data="payedit_dollar_rate")],
+    ]
+    await update.message.reply_text("⚙️ *কোন পেমেন্ট মেথডের নাম্বার পরিবর্তন করবেন?*", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+
+async def handle_payment_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    field = query.data.replace("payedit_", "")
+    context.user_data["editing_pay_field"] = field
+    await query.edit_message_text(f"নতুন মান (New Value) লিখে পাঠান:")
+    return EDIT_PAYMENT_VALUE
+
+async def save_payment_value(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    val = update.message.text.strip()
+    field = context.user_data.get("editing_pay_field")
+    if field == "dollar_rate":
+        try:
+            val = float(val)
+        except ValueError:
+            await update.message.reply_text("❌ সঠিক সংখ্যা লিখুন:")
+            return EDIT_PAYMENT_VALUE
+
+    db.collection("settings").document("payments").update({field: val})
+    await update.message.reply_text(f"✅ `{field}` আপডেট হয়েছে!", parse_mode="Markdown", reply_markup=get_admin_menu())
     return ConversationHandler.END
 
-# ----------------- MAIN APP LAUNCHER -----------------
+# --- ব্রডকাস্ট সিস্টেম ---
+async def start_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_admin(update.effective_user.id):
+        return
+    await update.message.reply_text("📢 সকল ইউজারের কাছে পাঠানোর জন্য মেসেজটি লিখুন:")
+    return BROADCAST_MSG
+
+async def send_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = update.message.text
+    users = db.collection("users").get()
+    success, failed = 0, 0
+    await update.message.reply_text("🚀 ব্রডকাস্ট শুরু হয়েছে...")
+    for u in users:
+        try:
+            await context.bot.send_message(chat_id=int(u.id), text=msg)
+            success += 1
+        except Exception:
+            failed += 1
+    await update.message.reply_text(f"📢 ব্রডকাস্ট সম্পন্ন!\n✅ সফল: {success}\n❌ ব্যর্থ: {failed}", reply_markup=get_admin_menu())
+    return ConversationHandler.END
+
+# --- ভাউচার ম্যানেজমেন্ট ---
+async def voucher_management(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_admin(update.effective_user.id):
+        return
+    await update.message.reply_text("নতুন ভাউচার কোড দিন (যেমন: PROMO50):")
+    return ADD_VOUCHER_CODE
+
+async def get_v_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["new_v_code"] = update.message.text.strip()
+    await update.message.reply_text("এই কোড রিডিম করলে কত টাকা ব্যালেন্স পাবে (Amount in BDT)?")
+    return ADD_VOUCHER_BAL
+
+async def get_v_bal(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        amt = float(update.message.text.strip())
+    except ValueError:
+        await update.message.reply_text("❌ সঠিক সংখ্যা লিখুন:")
+        return ADD_VOUCHER_BAL
+
+    code = context.user_data.get("new_v_code")
+    db.collection("vouchers").document(code).set({
+        "amount": amt,
+        "used": False,
+        "created_at": firestore.SERVER_TIMESTAMP
+    })
+    await update.message.reply_text(f"✅ ভাউচার `{code}` তৈরি হয়েছে ({amt} BDT)!", parse_mode="Markdown", reply_markup=get_admin_menu())
+    return ConversationHandler.END
+
+# --- অ্যাডমিন ম্যানেজমেন্ট ---
+async def admin_management_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != SUPER_ADMIN_ID:
+        return
+    kb = [
+        [InlineKeyboardButton("👑 Add Admin", callback_data="admin_add")],
+        [InlineKeyboardButton("❌ Delete Admin", callback_data="admin_del")]
+    ]
+    await update.message.reply_text("👑 *Admin Management System*", reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
+
+async def handle_admin_manage_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    act = query.data.replace("admin_", "")
+    if act == "add":
+        await query.edit_message_text("নতুন অ্যাডমিনের Telegram Numeric ID দিন:")
+        return ADD_ADMIN_ID
+    else:
+        admins = db.collection("admins").get()
+        kb = [[InlineKeyboardButton(f"❌ {a.id}", callback_data=f"deladm_{a.id}")] for a in admins]
+        await query.edit_message_text("কোন অ্যাডমিনকে রিমুভ করবেন?", reply_markup=InlineKeyboardMarkup(kb))
+
+async def save_new_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    aid = update.message.text.strip()
+    if not aid.isdigit():
+        await update.message.reply_text("❌ সঠিক সংখ্যা আইডি দিন:")
+        return ADD_ADMIN_ID
+    db.collection("admins").document(aid).set({"role": "admin"})
+    await update.message.reply_text(f"✅ ID `{aid}` কে অ্যাডমিন করা হয়েছে!", reply_markup=get_admin_menu())
+    return ConversationHandler.END
+
+async def del_admin_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    aid = query.data.replace("deladm_", "")
+    db.collection("admins").document(aid).delete()
+    await query.edit_message_text(f"✅ Admin `{aid}` ডিলিট করা হয়েছে!")
+
+# --- রিসেলার, ফোর্স জয়েন ও লিংক সেটআপ ---
+async def reseller_management(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_admin(update.effective_user.id):
+        return
+    await update.message.reply_text("🤝 রিসেলার রোল দিতে বা সরাতে ইউজারের টেলিগ্রাম ID দিন:")
+    return RESELLER_UID
+
+async def save_reseller_toggle(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.message.text.strip()
+    ref = db.collection("users").document(uid)
+    doc = ref.get()
+    if not doc.exists:
+        await update.message.reply_text("❌ ইউজার পাওয়া যায়নি।")
+        return ConversationHandler.END
+
+    status = not doc.to_dict().get("is_reseller", False)
+    ref.update({"is_reseller": status})
+    await update.message.reply_text(f"✅ User `{uid}` এর Reseller স্ট্যাটাস: {'Active' if status else 'Deactivated'}", reply_markup=get_admin_menu())
+    return ConversationHandler.END
+
+async def prompt_support_setup(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_admin(update.effective_user.id):
+        return
+    await update.message.reply_text("নতুন সাপোর্ট ইউজারনেম বা লিংক পাঠান (যেমন: https://t.me/your_support):")
+    return SETUP_SUPPORT
+
+async def save_support_setup(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    link = update.message.text.strip()
+    db.collection("settings").document("misc").update({"support_link": link})
+    await update.message.reply_text("✅ সাপোর্ট লিংক সংরক্ষিত হয়েছে!", reply_markup=get_admin_menu())
+    return ConversationHandler.END
+
+async def prompt_tutorial_setup(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_admin(update.effective_user.id):
+        return
+    await update.message.reply_text("নতুন টিউটোরিয়াল ভিডিও লিংক দিন:")
+    return SETUP_TUTORIAL
+
+async def save_tutorial_setup(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    link = update.message.text.strip()
+    db.collection("settings").document("misc").update({"tutorial_link": link})
+    await update.message.reply_text("✅ টিউটোরিয়াল লিংক সংরক্ষিত হয়েছে!", reply_markup=get_admin_menu())
+    return ConversationHandler.END
+
+async def prompt_force_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_admin(update.effective_user.id):
+        return
+    await update.message.reply_text("ফোর্স জয়েন চ্যানেলের ইউজারনেম দিন (যেমন: @yourchannel):")
+    return SETUP_FORCE_JOIN
+
+async def save_force_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    ch = update.message.text.strip()
+    db.collection("settings").document("misc").update({"force_channel": ch})
+    await update.message.reply_text("✅ চ্যানেল ফোর্স জয়েন সেট হয়েছে!", reply_markup=get_admin_menu())
+    return ConversationHandler.END
+
+# --- ক্যানসেল হ্যান্ডলার ---
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("বাতিল করা হয়েছে।", reply_markup=get_admin_menu())
+    return ConversationHandler.END
+
+# --- মেইন অ্যাপ্লিকেশন এক্সিকিউটর ---
 def main():
+    load_firebase()
     app = Application.builder().token(BOT_TOKEN).build()
 
-    # Stock upload conversation
-    stock_conv = ConversationHandler(
+    # ১. ফায়ারবেস JSON আপলোড
+    app.add_handler(ConversationHandler(
+        entry_points=[MessageHandler(filters.Regex("^🔥 Setup Firebase$"), ask_firebase_json)],
+        states={UPLOAD_FIREBASE_JSON: [MessageHandler(filters.Document.ALL, save_firebase_json)]},
+        fallbacks=[CommandHandler("cancel", cancel)],
+    ))
+
+    # ২. বাল্ক স্টক আপলোড
+    app.add_handler(ConversationHandler(
+        entry_points=[CallbackQueryHandler(handle_prepare_upload, pattern=r"^upstock_")],
+        states={UPLOAD_STOCK: [MessageHandler(filters.Document.ALL, process_stock_file)]},
+        fallbacks=[CommandHandler("cancel", cancel)],
+    ))
+
+    # ৩. ইউজার ম্যানেজমেন্ট
+    app.add_handler(ConversationHandler(
         entry_points=[
-            CallbackQueryHandler(stock_select_product, pattern=r"^stkprod_")
+            MessageHandler(filters.Regex("^👥 User Management$"), user_management),
+            CallbackQueryHandler(user_actions_callback, pattern=r"^uact_(add|cut|msg)_")
         ],
         states={
-            UPLOAD_STOCK: [MessageHandler(filters.Document.ALL, parse_and_upload_stock)]
+            FIND_USER: [MessageHandler(filters.TEXT & ~filters.COMMAND, search_user)],
+            USER_ACTION_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, apply_user_balance)],
+            USER_SEND_MSG: [MessageHandler(filters.TEXT & ~filters.COMMAND, send_user_direct_msg)],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
-    )
+    ))
 
-    # Payment setting modification conversation
-    payment_conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(select_payment_key, pattern=r"^payedit_")],
+    # ৪. পেমেন্ট সেটিংস
+    app.add_handler(ConversationHandler(
+        entry_points=[CallbackQueryHandler(handle_payment_edit, pattern=r"^payedit_")],
+        states={EDIT_PAYMENT_VALUE: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_payment_value)]},
+        fallbacks=[CommandHandler("cancel", cancel)],
+    ))
+
+    # ৫. ইউজার ডিপোজিট
+    app.add_handler(ConversationHandler(
+        entry_points=[MessageHandler(filters.Regex("^💵 Deposit$"), user_deposit_start)],
         states={
-            EDIT_SETTING: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_payment_setting)]
+            DEPOSIT_AMOUNT: [
+                CallbackQueryHandler(deposit_method_picked, pattern=r"^paymeth_"),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, deposit_amount_received)
+            ],
+            DEPOSIT_TRX: [MessageHandler(filters.TEXT & ~filters.COMMAND, deposit_trx_received)],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
-    )
+    ))
 
-    # User management conversation
-    user_conv = ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex("^👥 User Management$"), user_management_entry)],
+    # ৬. ভাউচার রিডিম (ইউজার)
+    app.add_handler(ConversationHandler(
+        entry_points=[MessageHandler(filters.Regex("^🛡️ Get Code$"), get_code_prompt)],
+        states={REDEEM_VOUCHER: [MessageHandler(filters.TEXT & ~filters.COMMAND, redeem_code)]},
+        fallbacks=[CommandHandler("cancel", cancel)],
+    ))
+
+    # ৭. ভাউচার তৈরি (অ্যাডমিন)
+    app.add_handler(ConversationHandler(
+        entry_points=[MessageHandler(filters.Regex("^🏷️ Voucher Management$"), voucher_management)],
         states={
-            FIND_USER: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_user_lookup)]
+            ADD_VOUCHER_CODE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_v_code)],
+            ADD_VOUCHER_BAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_v_bal)]
         },
         fallbacks=[CommandHandler("cancel", cancel)],
-    )
+    ))
 
-    # Base Handlers
+    # ৮. প্রোডাক্ট অ্যাড ও প্রাইস চেঞ্জ
+    app.add_handler(ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(handle_prodman_actions, pattern=r"^prodman_add$"),
+            CallbackQueryHandler(handle_prodman_actions, pattern=r"^prodman_chprice$"),
+            CallbackQueryHandler(select_prod_for_price, pattern=r"^chpr_"),
+        ],
+        states={
+            ADD_PROD_CAT: [CallbackQueryHandler(save_add_prod_cat, pattern=r"^setcat_")],
+            ADD_PROD_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_add_prod_name)],
+            ADD_PROD_PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_add_prod_price)],
+            CHANGE_PRICE_SELECT: [CallbackQueryHandler(select_prod_for_price, pattern=r"^chpr_")],
+            CHANGE_PRICE_VAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_new_price)],
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
+    ))
+
+    # ৯. ব্রডকাস্ট
+    app.add_handler(ConversationHandler(
+        entry_points=[MessageHandler(filters.Regex("^📢 Broadcast$"), start_broadcast)],
+        states={BROADCAST_MSG: [MessageHandler(filters.TEXT & ~filters.COMMAND, send_broadcast)]},
+        fallbacks=[CommandHandler("cancel", cancel)],
+    ))
+
+    # ১০. অ্যাডমিন অ্যাড
+    app.add_handler(ConversationHandler(
+        entry_points=[CallbackQueryHandler(handle_admin_manage_cb, pattern=r"^admin_add$")],
+        states={ADD_ADMIN_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_new_admin)]},
+        fallbacks=[CommandHandler("cancel", cancel)],
+    ))
+
+    # ১১. রিসেলার, সাপোর্ট, টিউটোরিয়াল ও ফোর্স জয়েন
+    app.add_handler(ConversationHandler(
+        entry_points=[MessageHandler(filters.Regex("^🤝 Reseller Management$"), reseller_management)],
+        states={RESELLER_UID: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_reseller_toggle)]},
+        fallbacks=[CommandHandler("cancel", cancel)],
+    ))
+    app.add_handler(ConversationHandler(
+        entry_points=[MessageHandler(filters.Regex("^🧰 Support Setup$"), prompt_support_setup)],
+        states={SETUP_SUPPORT: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_support_setup)]},
+        fallbacks=[CommandHandler("cancel", cancel)],
+    ))
+    app.add_handler(ConversationHandler(
+        entry_points=[MessageHandler(filters.Regex("^📽️ Tutorial Setup$"), prompt_tutorial_setup)],
+        states={SETUP_TUTORIAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_tutorial_setup)]},
+        fallbacks=[CommandHandler("cancel", cancel)],
+    ))
+    app.add_handler(ConversationHandler(
+        entry_points=[MessageHandler(filters.Regex("^👑 Force Join Setup$"), prompt_force_join)],
+        states={SETUP_FORCE_JOIN: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_force_join)]},
+        fallbacks=[CommandHandler("cancel", cancel)],
+    ))
+
+    # --- রেগুলার মেনু ও বাটন ইভেন্ট লিসেনার ---
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.Regex("^🎟️ Buy Products$"), buy_products_menu))
     app.add_handler(MessageHandler(filters.Regex("^🧑‍💼 My Profile$"), my_profile))
+    app.add_handler(MessageHandler(filters.Regex("^💬 Support$"), user_support))
+    app.add_handler(MessageHandler(filters.Regex("^👑 Tutorial$"), user_tutorial))
     app.add_handler(MessageHandler(filters.Regex("^👑 Admin Panel$"), admin_panel))
-    app.add_handler(MessageHandler(filters.Regex("^🌐 Live Stock$"), live_stock))
-    app.add_handler(MessageHandler(filters.Regex("^🔥 Add Stock$"), start_add_stock))
     app.add_handler(MessageHandler(filters.Regex("^💼 Product Management$"), product_management_menu))
-    app.add_handler(MessageHandler(filters.Regex("^💳 Payment Settings$"), payment_settings_menu))
-    app.add_handler(MessageHandler(filters.Regex("^🔔 Deposit Requests$"), deposit_requests_view))
+    app.add_handler(MessageHandler(filters.Regex("^🌐 Live Stock$"), live_stock))
+    app.add_handler(MessageHandler(filters.Regex("^🔥 Add Stock$"), add_stock_menu))
+    app.add_handler(MessageHandler(filters.Regex("^🔔 Deposit Requests$"), show_deposit_requests))
+    app.add_handler(MessageHandler(filters.Regex("^⚙️ Deposit History$"), deposit_history))
+    app.add_handler(MessageHandler(filters.Regex("^🔑 Admin Management$"), admin_management_menu))
+    app.add_handler(MessageHandler(filters.Regex("^💳 Payment Settings$"), payment_settings))
     app.add_handler(MessageHandler(filters.Regex("^✅ User Menu$"), start))
 
-    # Dynamic Callback Handlers
-    app.add_handler(CallbackQueryHandler(user_category_click, pattern=r"^buycat_"))
-    app.add_handler(CallbackQueryHandler(user_buy_product, pattern=r"^buyitem_"))
-    app.add_handler(CallbackQueryHandler(stock_select_category, pattern=r"^stkcat_"))
-    app.add_handler(CallbackQueryHandler(admin_delete_product_category, pattern=r"^adm_del_product$"))
-    app.add_handler(CallbackQueryHandler(admin_delete_product_list, pattern=r"^delcat_"))
-    app.add_handler(CallbackQueryHandler(admin_confirm_delete_product, pattern=r"^confirmdel_"))
+    # ইনলাইন বাটন হ্যান্ডলার
+    app.add_handler(CallbackQueryHandler(handle_buy_cat, pattern=r"^buycat_"))
+    app.add_handler(CallbackQueryHandler(handle_order, pattern=r"^order_"))
+    app.add_handler(CallbackQueryHandler(handle_stock_cat, pattern=r"^stockcat_"))
+    app.add_handler(CallbackQueryHandler(user_actions_callback, pattern=r"^uact_ban_"))
+    app.add_handler(CallbackQueryHandler(handle_deposit_decide, pattern=r"^dep(app|rej)_"))
+    app.add_handler(CallbackQueryHandler(delete_single_product, pattern=r"^delp_"))
+    app.add_handler(CallbackQueryHandler(clear_product_stock, pattern=r"^clearstock_"))
+    app.add_handler(CallbackQueryHandler(del_admin_cb, pattern=r"^deladm_"))
+    app.add_handler(CallbackQueryHandler(handle_admin_manage_cb, pattern=r"^admin_del$"))
 
-    # Register conversations
-    app.add_handler(stock_conv)
-    app.add_handler(payment_conv)
-    app.add_handler(user_conv)
-
-    print("Firebase Bot Started successfully.")
+    print("New Proxy Market Bot is fully online and running...")
     app.run_polling()
 
 if __name__ == "__main__":
