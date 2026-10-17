@@ -24,21 +24,20 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 import openpyxl
 
-# --- RENDER PORT BINDING (BACKGROUND THREAD) ---
+# --- RENDER PORT LISTENER ---
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.send_header("Content-type", "text/plain")
         self.end_headers()
-        self.wfile.write(b"Bot is healthy and running on Render!")
+        self.wfile.write(b"Bot is healthy and live!")
 
 def run_http_server():
     port = int(os.environ.get("PORT", 8080))
     server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
-    logging.info(f"Render HTTP Web Service listening on port {port}...")
+    logging.info(f"Render HTTP server active on port {port}...")
     server.serve_forever()
 
-# সার্ভার থ্রেড চালু করা (Render সাথে সাথে পোর্ট খুঁজে পাবে)
 http_thread = threading.Thread(target=run_http_server, daemon=True)
 http_thread.start()
 
@@ -50,39 +49,69 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 
-# ফায়ারবেস কনফিগারেশন লোডার
 db = None
 
 def init_firebase():
     global db
-    # ১. যদি Environment Variables এ দেওয়া থাকে
-    env_creds = os.environ.get("FIREBASE_CREDENTIALS")
-    
-    if env_creds:
-        try:
-            cred_dict = json.loads(env_creds)
-            # যদি এস্কেপ ক্যারেক্টার থাকে তা ঠিক করা
-            if "private_key" in cred_dict:
-                cred_dict["private_key"] = cred_dict["private_key"].replace("\\n", "\n")
-            with open("serviceAccountKey.json", "w", encoding="utf-8") as f:
-                json.dump(cred_dict, f)
-        except Exception as e:
-            logging.error(f"Error parsing FIREBASE_CREDENTIALS: {e}")
-
-    # ২. ফাইল থেকে লোড করা (JWT Signature এরর এড়ানোর সবচেয়ে নিরাপদ উপায়)
+    # Secret File বা লোকাল ফাইল চেক
     if os.path.exists("serviceAccountKey.json"):
         try:
             if not firebase_admin._apps:
                 cred = credentials.Certificate("serviceAccountKey.json")
                 firebase_admin.initialize_app(cred)
             db = firestore.client()
-            logging.info("Firebase connected successfully!")
+            init_settings()
+            logging.info("Firebase connected successfully from serviceAccountKey.json!")
             return True
         except Exception as e:
             logging.error(f"Firebase connection error: {e}")
             db = None
             return False
+
+    # Environment Variable চেক
+    env_creds = os.environ.get("FIREBASE_CREDENTIALS")
+    if env_creds:
+        try:
+            cred_dict = json.loads(env_creds)
+            if not firebase_admin._apps:
+                cred = credentials.Certificate(cred_dict)
+                firebase_admin.initialize_app(cred)
+            db = firestore.client()
+            init_settings()
+            logging.info("Firebase connected successfully from FIREBASE_CREDENTIALS!")
+            return True
+        except Exception as e:
+            logging.error(f"Error parsing FIREBASE_CREDENTIALS: {e}")
+            db = None
+            return False
+
+    logging.warning("No Firebase credentials found! Bot running in offline mode.")
     return False
+
+def init_settings():
+    global db
+    if not db:
+        return
+    try:
+        set_ref = db.collection("settings").document("payments")
+        if not set_ref.get().exists:
+            set_ref.set({
+                "bkash": "01XXXXXXXXX",
+                "nagad": "01XXXXXXXXX",
+                "rocket": "01XXXXXXXXX",
+                "binance": "1266509663",
+                "dollar_rate": 125.0
+            })
+
+        misc_ref = db.collection("settings").document("misc")
+        if not misc_ref.get().exists:
+            misc_ref.set({
+                "support_link": "https://t.me/your_admin",
+                "tutorial_link": "https://youtube.com",
+                "force_channel": ""
+            })
+    except Exception as e:
+        logging.error(f"Settings init error: {e}")
 
 init_firebase()
 
@@ -183,7 +212,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # --- PROFILE UI ---
 async def my_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not db:
-        await update.message.reply_text("⚠️ System offline. Please check database connection.")
+        await update.message.reply_text("⚠️ System offline. Please upload valid Firebase credentials.")
         return
     user_id = str(update.effective_user.id)
     data = db.collection("users").document(user_id).get().to_dict() or {}
@@ -223,7 +252,7 @@ async def user_tutorial(update: Update, context: ContextTypes.DEFAULT_TYPE):
         link = misc.get("tutorial_link", link)
     await update.message.reply_text(f"👑 *Tutorial & Help:*\n\nWatch our walkthrough:\n👉 {link}", parse_mode="Markdown")
 
-# --- DEPOSIT SYSTEM (FIXED LOOP & PHOTO/SS) ---
+# --- DEPOSIT SYSTEM ---
 async def user_deposit_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not db:
         await update.message.reply_text("⚠️ Database is offline.")
@@ -341,7 +370,7 @@ async def deposit_proof_received(update: Update, context: ContextTypes.DEFAULT_T
     )
     return ConversationHandler.END
 
-# --- STORE FLOW (DYNAMIC & COUNTER UI) ---
+# --- STORE FLOW ---
 async def buy_products_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not db:
         await update.message.reply_text("⚠️ Store is currently unavailable.")
@@ -530,7 +559,7 @@ async def confirm_purchase(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await query.edit_message_text(receipt, parse_mode="Markdown")
 
-# --- BROADCAST (VOICE / TEXT / PHOTO) ---
+# --- BROADCAST ---
 async def start_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin_sync(update.effective_user.id):
         return
@@ -654,7 +683,7 @@ async def process_stock_file(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("❌ No items parsed from file.")
     return ConversationHandler.END
 
-# --- PRODUCT MANAGEMENT (ADD / PRICE / DELETE / CLEAR) ---
+# --- PRODUCT MANAGEMENT ---
 async def product_management_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin_sync(update.effective_user.id):
         return
@@ -1158,7 +1187,7 @@ async def cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def noop_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.answer()
 
-# --- MAIN RUNNER ---
+# --- MAIN DISPATCHER ---
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
 
@@ -1306,7 +1335,7 @@ def main():
     app.add_handler(CallbackQueryHandler(del_admin_cb, pattern=r"^deladm_"))
     app.add_handler(CallbackQueryHandler(handle_admin_manage_cb, pattern=r"^admin_del$"))
 
-    logging.info("Bot is polling and ready...")
+    logging.info("Bot polling is active...")
     app.run_polling()
 
 if __name__ == "__main__":
