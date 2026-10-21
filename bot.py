@@ -50,7 +50,7 @@ def run_http_server():
 threading.Thread(target=run_http_server, daemon=True).start()
 
 # --- CONFIGURATION ---
-BOT_TOKEN = "8868386011:AAEulcSqsAr2DxvBLRdMNANzDfCak5MN64Q"
+BOT_TOKEN = "8868386011:AAGmU_Bm_TNfuaa66wijUBFb5tFuKMCk77c"
 SUPER_ADMIN_ID = 8271633124
 LOCAL_KEY_PATH = "serviceAccountKey.json"
 
