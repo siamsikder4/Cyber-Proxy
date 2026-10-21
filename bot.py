@@ -25,7 +25,7 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 import openpyxl
 
-# --- RENDER WEB SERVICE PORT LISTENER (GET & HEAD) ---
+# --- RENDER WEB SERVICE PORT LISTENER ---
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_HEAD(self):
         self.send_response(200)
@@ -58,7 +58,27 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 
-# --- পার্মানেন্ট লোকাল ডাটাবেজ (SQLite) ---
+# --- PREMIUM CUSTOM EMOJI CONFIGURATION ---
+# আপনার পছন্দের টেলিগ্রাম প্রিমিয়াম ইমোজি আইডিগুলো নিচে বসিয়ে দিন
+EMOJI = {
+    "sparkles": '<tg-emoji emoji-id="5368324170671202286">✨</tg-emoji>',
+    "cart": '<tg-emoji emoji-id="5427168097561845112">🛒</tg-emoji>',
+    "crown": '<tg-emoji emoji-id="5427168097561845113">👑</tg-emoji>',
+    "shield": '<tg-emoji emoji-id="5427168097561845114">🛡️</tg-emoji>',
+    "card": '<tg-emoji emoji-id="5427168097561845115">💳</tg-emoji>',
+    "profile": '<tg-emoji emoji-id="5427168097561845116">👤</tg-emoji>',
+    "money": '<tg-emoji emoji-id="5427168097561845117">💰</tg-emoji>',
+    "verified": '<tg-emoji emoji-id="5427168097561845118">✅</tg-emoji>',
+    "cross": '<tg-emoji emoji-id="5427168097561845119">❌</tg-emoji>',
+    "fire": '<tg-emoji emoji-id="5427168097561845120">🔥</tg-emoji>',
+    "box": '<tg-emoji emoji-id="5427168097561845121">📦</tg-emoji>',
+    "bell": '<tg-emoji emoji-id="5427168097561845122">🔔</tg-emoji>',
+    "key": '<tg-emoji emoji-id="5427168097561845123">🔑</tg-emoji>',
+    "tag": '<tg-emoji emoji-id="5427168097561845124">🏷️</tg-emoji>',
+    "gear": '<tg-emoji emoji-id="5427168097561845125">⚙️</tg-emoji>'
+}
+
+# --- DATABASE SETUP ---
 def get_db():
     conn = sqlite3.connect("permanent_market.db", check_same_thread=False)
     conn.row_factory = sqlite3.Row
@@ -119,21 +139,24 @@ def init_local_db():
         )
     """)
     
-    # ডিফল্ট কনফিগারেশন
-    c.execute("INSERT OR IGNORE INTO settings (key, val) VALUES ('bkash', '01XXXXXXXXX')")
-    c.execute("INSERT OR IGNORE INTO settings (key, val) VALUES ('nagad', '01XXXXXXXXX')")
-    c.execute("INSERT OR IGNORE INTO settings (key, val) VALUES ('rocket', '01XXXXXXXXX')")
-    c.execute("INSERT OR IGNORE INTO settings (key, val) VALUES ('binance', '1266509663')")
-    c.execute("INSERT OR IGNORE INTO settings (key, val) VALUES ('dollar_rate', '125.0')")
-    c.execute("INSERT OR IGNORE INTO settings (key, val) VALUES ('support_link', 'https://t.me/your_admin')")
-    c.execute("INSERT OR IGNORE INTO settings (key, val) VALUES ('tutorial_link', 'https://youtube.com')")
-    c.execute("INSERT OR IGNORE INTO settings (key, val) VALUES ('force_channel', '')")
+    defaults = [
+        ('bkash', '01XXXXXXXXX'),
+        ('nagad', '01XXXXXXXXX'),
+        ('rocket', '01XXXXXXXXX'),
+        ('binance', '1266509663'),
+        ('dollar_rate', '125.0'),
+        ('support_link', 'https://t.me/your_admin'),
+        ('tutorial_link', 'https://youtube.com'),
+        ('force_channel', '')
+    ]
+    for key, val in defaults:
+        c.execute("INSERT OR IGNORE INTO settings (key, val) VALUES (?, ?)", (key, val))
     conn.commit()
     conn.close()
 
 init_local_db()
 
-# --- ফায়ারবেস হ্যান্ডলার ---
+# --- FIREBASE HANDLER ---
 firestore_db = None
 
 def try_connect_firebase():
@@ -154,7 +177,7 @@ def try_connect_firebase():
 
 try_connect_firebase()
 
-# --- কনভার্সেশন স্টেটস ---
+# --- CONVERSATION STATES ---
 (
     UPLOAD_FIREBASE,
     UPLOAD_STOCK,
@@ -189,30 +212,29 @@ def is_admin(user_id: int) -> bool:
     conn.close()
     return bool(row)
 
-MENU_BUTTON_REGEX = r"^(🛍️ Buy Product|👤 My Profile|💳 Deposit|🏷️ Get Code|💬 Support|👑 Tutorial|👑 Admin Panel|💼 Product Management|📦 Add Stock|📊 Live Stock|👥 User Management|🔔 Deposit Requests|📜 Deposit History|📢 Broadcast|🏷️ Voucher Management|🛠️ Support Setup|💳 Payment Settings|🔑 Admin Management|🤝 Reseller Management|📽️ Tutorial Setup|👑 Force Join Setup|⚙️ Setup Firebase|🔙 User Menu)$"
+MENU_BUTTON_REGEX = r"^(🛍️ Market Store|👤 My Account|💳 Deposit Balance|🏷️ Redeem Voucher|💬 24/7 Support|👑 Tutorial Guide|⚡ Admin Control|📦 Stock Center|📊 Inventory Matrix|👥 Customer Hub|🔔 Deposit Approvals|📜 Transaction Logs|📢 Announce Broadcast|🏷️ Voucher Studio|🛠️ System Channels|💳 Gateway Setup|🔑 Admin Delegation|🤝 Reseller Suite|⚙️ Cloud Integration|🔙 Main Menu)$"
 
-# --- কীবোর্ড মেনু ---
+# --- MENUS ---
 def get_user_menu(is_adm=False):
     kb = [
-        [KeyboardButton("🛍️ Buy Product")],
-        [KeyboardButton("👤 My Profile"), KeyboardButton("💳 Deposit")],
-        [KeyboardButton("🏷️ Get Code"), KeyboardButton("💬 Support")],
-        [KeyboardButton("👑 Tutorial")],
+        [KeyboardButton("🛍️ Market Store")],
+        [KeyboardButton("👤 My Account"), KeyboardButton("💳 Deposit Balance")],
+        [KeyboardButton("🏷️ Redeem Voucher"), KeyboardButton("💬 24/7 Support")],
+        [KeyboardButton("👑 Tutorial Guide")],
     ]
     if is_adm:
-        kb.append([KeyboardButton("👑 Admin Panel")])
+        kb.append([KeyboardButton("⚡ Admin Control")])
     return ReplyKeyboardMarkup(kb, resize_keyboard=True)
 
 def get_admin_menu():
     kb = [
-        [KeyboardButton("💼 Product Management"), KeyboardButton("📦 Add Stock")],
-        [KeyboardButton("📊 Live Stock"), KeyboardButton("👥 User Management")],
-        [KeyboardButton("🔔 Deposit Requests"), KeyboardButton("📜 Deposit History")],
-        [KeyboardButton("📢 Broadcast"), KeyboardButton("🏷️ Voucher Management")],
-        [KeyboardButton("🛠️ Support Setup"), KeyboardButton("💳 Payment Settings")],
-        [KeyboardButton("🔑 Admin Management"), KeyboardButton("🤝 Reseller Management")],
-        [KeyboardButton("📽️ Tutorial Setup"), KeyboardButton("👑 Force Join Setup")],
-        [KeyboardButton("⚙️ Setup Firebase"), KeyboardButton("🔙 User Menu")],
+        [KeyboardButton("📦 Stock Center"), KeyboardButton("📊 Inventory Matrix")],
+        [KeyboardButton("👥 Customer Hub"), KeyboardButton("🔔 Deposit Approvals")],
+        [KeyboardButton("📢 Announce Broadcast"), KeyboardButton("🏷️ Voucher Studio")],
+        [KeyboardButton("💳 Gateway Setup"), KeyboardButton("🔑 Admin Delegation")],
+        [KeyboardButton("🤝 Reseller Suite"), KeyboardButton("🛠️ System Channels")],
+        [KeyboardButton("📜 Transaction Logs"), KeyboardButton("⚙️ Cloud Integration")],
+        [KeyboardButton("🔙 Main Menu")]
     ]
     return ReplyKeyboardMarkup(kb, resize_keyboard=True)
 
@@ -230,10 +252,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn.close()
 
     welcome_msg = (
-        f"👋 *Welcome, {user.first_name}!*\n\n"
-        f"Select an option from the menu below to start shopping or managing your account."
+        f"{EMOJI['sparkles']} <b>Welcome to Exclusive Store, {user.first_name}!</b>\n\n"
+        f"{EMOJI['cart']} High-speed proxies, VPN credentials, and instant services.\n"
+        f"{EMOJI['shield']} <i>Automated, secure, and fast instant delivery.</i>\n\n"
+        f"Select an option below to get started:"
     )
-    await update.message.reply_text(welcome_msg, parse_mode="Markdown", reply_markup=get_user_menu(adm))
+    await update.message.reply_text(welcome_msg, parse_mode="HTML", reply_markup=get_user_menu(adm))
 
 # --- PROFILE ---
 async def my_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -245,17 +269,24 @@ async def my_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn.close()
 
     bal = u["balance"] if u else 0.0
+    orders = u["orders"] if u else 0
     usd = bal / 125.0
+    status = f"{EMOJI['cross']} Banned" if u and u['is_banned'] else f"{EMOJI['verified']} Verified Member"
 
     card = (
-        "👤 *My Profile*\n\n"
-        f"👤 Name     : {update.effective_user.full_name}\n"
-        f"🆔 User ID  : `{user_id}`\n"
-        f"💲 Balance  : *{bal:.2f} BDT* / {usd:.4f} USDT\n"
-        f"⏳ Status   : {'🚫 Banned' if u and u['is_banned'] else '✅ Active'}\n"
-        f"───────────────────────────"
+        f"<b>━━━━━━━━━━━━━━━━━━━━</b>\n"
+        f"{EMOJI['profile']} <b>VIP ACCOUNT PROFILE</b>\n"
+        f"<b>━━━━━━━━━━━━━━━━━━━━</b>\n"
+        f"<b>Name :</b> {update.effective_user.full_name}\n"
+        f"<b>Account ID :</b> <code>{user_id}</code>\n"
+        f"<b>Status :</b> {status}\n"
+        f"<b>Role :</b> {'🤝 Reseller VIP' if u and u['is_reseller'] else '👤 Retail Member'}\n\n"
+        f"{EMOJI['money']} <b>Available Balance:</b>\n"
+        f"↳ <b>{bal:.2f} BDT</b> <i>(~${usd:.2f} USDT)</i>\n"
+        f"{EMOJI['box']} <b>Completed Purchases:</b> <code>{orders} Items</code>\n"
+        f"<b>━━━━━━━━━━━━━━━━━━━━</b>"
     )
-    await update.message.reply_text(card, parse_mode="Markdown")
+    await update.message.reply_text(card, parse_mode="HTML")
 
 # --- SUPPORT & TUTORIAL ---
 async def user_support(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -265,9 +296,12 @@ async def user_support(update: Update, context: ContextTypes.DEFAULT_TYPE):
     link = c.fetchone()["val"]
     conn.close()
 
-    msg = "🗣️ *Our Support Team*\n\nClick the button below to reach our official support directly:"
-    kb = [[InlineKeyboardButton("🗣️ Contact Admin", url=link)]]
-    await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
+    msg = (
+        f"{EMOJI['crown']} <b>Customer Concierge & Support</b>\n\n"
+        f"Need assistance or facing an issue? Our team is live 24/7."
+    )
+    kb = [[InlineKeyboardButton("💬 Connect with Official Support", url=link)]]
+    await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
 
 async def user_tutorial(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn = get_db()
@@ -275,38 +309,9 @@ async def user_tutorial(update: Update, context: ContextTypes.DEFAULT_TYPE):
     c.execute("SELECT val FROM settings WHERE key='tutorial_link'")
     link = c.fetchone()["val"]
     conn.close()
-    await update.message.reply_text(f"👑 *Tutorial Video:*\n👉 {link}", parse_mode="Markdown")
+    await update.message.reply_text(f"{EMOJI['fire']} <b>Master Video Guide:</b>\n👉 <a href='{link}'>Click here to watch the tutorial</a>", parse_mode="HTML", disable_web_page_preview=True)
 
-# --- FIREBASE SETUP VIA TELEGRAM ---
-async def ask_firebase_json(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id):
-        return ConversationHandler.END
-    await update.message.reply_text("📁 আপনার Firebase-এর `.json` ফাইলটি ডকুমেন্ট হিসেবে সেন্ড করুন (বা /cancel চাপুন):")
-    return UPLOAD_FIREBASE
-
-async def save_firebase_json(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    doc = update.message.document
-    if not doc or not doc.file_name.endswith(".json"):
-        await update.message.reply_text("❌ এটি ভ্যালিড JSON ফাইল নয়! আবার পাঠান:")
-        return UPLOAD_FIREBASE
-
-    file = await doc.get_file()
-    file_bytes = await file.download_as_bytearray()
-    try:
-        json.loads(file_bytes.decode("utf-8"))
-        with open(LOCAL_KEY_PATH, "wb") as f:
-            f.write(file_bytes)
-
-        if try_connect_firebase():
-            await update.message.reply_text("✅ *Firebase সফলভাবে যুক্ত হয়েছে এবং চালু আছে!*", parse_mode="Markdown", reply_markup=get_admin_menu())
-        else:
-            await update.message.reply_text("⚠️ ফাইল সংরক্ষিত হয়েছে তবে Firebase রিফ্রেশ ব্যর্থ হয়েছে।")
-    except Exception as e:
-        await update.message.reply_text(f"❌ এরর: `{e}`", parse_mode="Markdown")
-
-    return ConversationHandler.END
-
-# --- DEPOSIT (SS / TRXID) ---
+# --- DEPOSIT SYSTEM ---
 async def user_deposit_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn = get_db()
     c = conn.cursor()
@@ -315,19 +320,21 @@ async def user_deposit_start(update: Update, context: ContextTypes.DEFAULT_TYPE)
     conn.close()
 
     kb = [
-        [InlineKeyboardButton("💳 bKash", callback_data="paymeth_bkash"), InlineKeyboardButton("💳 Nagad", callback_data="paymeth_nagad")],
-        [InlineKeyboardButton("💳 Rocket", callback_data="paymeth_rocket"), InlineKeyboardButton("💳 Binance", callback_data="paymeth_binance")],
-        [InlineKeyboardButton("❌ Cancel", callback_data="cancel_action")]
+        [InlineKeyboardButton("💳 bKash Personal", callback_data="paymeth_bkash"), InlineKeyboardButton("💳 Nagad Personal", callback_data="paymeth_nagad")],
+        [InlineKeyboardButton("💳 Rocket Personal", callback_data="paymeth_rocket"), InlineKeyboardButton("🪙 Binance Pay (USDT)", callback_data="paymeth_binance")],
+        [InlineKeyboardButton("✖ Close", callback_data="cancel_action")]
     ]
     msg = (
-        "💳 *Deposit Options*\n\n"
-        f"• bKash: `{settings.get('bkash')}`\n"
-        f"• Nagad: `{settings.get('nagad')}`\n"
-        f"• Rocket: `{settings.get('rocket')}`\n"
-        f"• Binance: `{settings.get('binance')}`\n\n"
-        "পেমেন্ট মেথড সিলেক্ট করুন:"
+        f"{EMOJI['card']} <b>DEPOSIT & INSTANT TOP-UP</b>\n"
+        f"<b>━━━━━━━━━━━━━━━━━━━━</b>\n"
+        f"• <b>bKash:</b> <code>{settings.get('bkash')}</code>\n"
+        f"• <b>Nagad:</b> <code>{settings.get('nagad')}</code>\n"
+        f"• <b>Rocket:</b> <code>{settings.get('rocket')}</code>\n"
+        f"• <b>Binance Pay ID:</b> <code>{settings.get('binance')}</code>\n"
+        f"<b>━━━━━━━━━━━━━━━━━━━━</b>\n"
+        f"<i>Select your payment gateway below to proceed:</i>"
     )
-    await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
+    await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
     return DEPOSIT_AMOUNT
 
 async def deposit_method_picked(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -336,9 +343,12 @@ async def deposit_method_picked(update: Update, context: ContextTypes.DEFAULT_TY
     method = query.data.replace("paymeth_", "")
     context.user_data["dep_method"] = method
 
-    msg = f"💳 *Selected: {method.upper()}*\n\nআপনি কত টাকা পাঠিয়েছেন তা লিখুন (in BDT):"
-    kb = [[InlineKeyboardButton("❌ Cancel", callback_data="cancel_action")]]
-    await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
+    msg = (
+        f"{EMOJI['sparkles']} <b>Selected Gateway: {method.upper()}</b>\n\n"
+        f"কত টাকা পাঠিয়েছেন তা সংখ্যায় লিখুন (BDT):"
+    )
+    kb = [[InlineKeyboardButton("✖ Cancel", callback_data="cancel_action")]]
+    await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
     return DEPOSIT_AMOUNT
 
 async def deposit_amount_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -349,12 +359,13 @@ async def deposit_amount_received(update: Update, context: ContextTypes.DEFAULT_
             raise ValueError()
         context.user_data["dep_amount"] = amt
     except Exception:
-        await update.message.reply_text("❌ সঠিক সংখ্যা লিখুন (যেমন: 100) অথবা /cancel চাপুন:")
+        await update.message.reply_text(f"{EMOJI['cross']} সঠিক সংখ্যা লিখুন (যেমন: 100) অথবা /cancel চাপুন:")
         return DEPOSIT_AMOUNT
 
     await update.message.reply_text(
-        "📸 এবার পেমেন্টের *Transaction ID (TrxID)* লিখে দিন অথবা পেমেন্টের *Screenshot (SS)* সেন্ড করুন:",
-        parse_mode="Markdown"
+        f"{EMOJI['bell']} <b>ভেরিফিকেশন প্রুফ সেন্ড করুন:</b>\n"
+        f"পেমেন্টের <b>Transaction ID (TrxID)</b> লিখুন অথবা একটি <b>Screenshot (SS)</b> সেন্ড করুন:",
+        parse_mode="HTML"
     )
     return DEPOSIT_PROOF
 
@@ -379,29 +390,36 @@ async def deposit_proof_received(update: Update, context: ContextTypes.DEFAULT_T
     conn.commit()
     conn.close()
 
-    kb = [[InlineKeyboardButton("✅ Approve", callback_data=f"depapp_{req_id}"),
-           InlineKeyboardButton("❌ Reject", callback_data=f"deprej_{req_id}")]]
+    kb = [[
+        InlineKeyboardButton("✅ Approve", callback_data=f"depapp_{req_id}"),
+        InlineKeyboardButton("❌ Reject", callback_data=f"deprej_{req_id}")
+    ]]
 
     caption = (
-        f"🔔 *NEW DEPOSIT REQUEST*\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"• User ID : `{uid}`\n"
-        f"• Amount  : *{amt:.2f} BDT*\n"
-        f"• Method  : {method.upper()}\n"
-        f"• Proof   : `{trx_text}`"
+        f"{EMOJI['bell']} <b>NEW DEPOSIT REQUEST #{req_id}</b>\n"
+        f"<b>━━━━━━━━━━━━━━━━━━━━</b>\n"
+        f"• <b>User ID:</b> <code>{uid}</code>\n"
+        f"• <b>Amount:</b> <b>{amt:.2f} BDT</b>\n"
+        f"• <b>Method:</b> {method.upper()}\n"
+        f"• <b>Proof:</b> <code>{trx_text}</code>\n"
+        f"<b>━━━━━━━━━━━━━━━━━━━━</b>"
     )
     try:
         if photo_file_id:
-            await context.bot.send_photo(chat_id=SUPER_ADMIN_ID, photo=photo_file_id, caption=caption, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
+            await context.bot.send_photo(chat_id=SUPER_ADMIN_ID, photo=photo_file_id, caption=caption, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
         else:
-            await context.bot.send_message(chat_id=SUPER_ADMIN_ID, text=caption, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
+            await context.bot.send_message(chat_id=SUPER_ADMIN_ID, text=caption, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
     except Exception as e:
         logging.error(f"Error alerting admin: {e}")
 
-    await update.message.reply_text("✅ *ডিপোজিট রিকোয়েস্ট জমা হয়েছে!* অ্যাডমিন অ্যাপ্রুভ করলে ব্যালেন্স যোগ হবে।", parse_mode="Markdown")
+    await update.message.reply_text(
+        f"{EMOJI['verified']} <b>ডিপোজিট রিকোয়েস্ট সফলভাবে জমা হয়েছে!</b>\n"
+        f"অ্যাডমিন ভেরিফাই করলেই আপনার ব্যালেন্সে স্বয়ংক্রিয়ভাবে ফান্ড যোগ হয়ে যাবে।",
+        parse_mode="HTML"
+    )
     return ConversationHandler.END
 
-# --- STORE (DYNAMIC & QUANTITY COUNTER) ---
+# --- STORE (CATEGORIES / QUANTITY / CHECKOUT) ---
 async def buy_products_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn = get_db()
     c = conn.cursor()
@@ -410,29 +428,33 @@ async def buy_products_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn.close()
 
     if not cats:
-        msg = "🛍️ *দোকানটি বর্তমানে খালি!*\nকোনো প্রোডাক্ট যোগ করা হয়নি।"
+        msg = f"{EMOJI['box']} <b>স্টোর বর্তমানে খালি!</b>\nকোনো পণ্য এখনো তালিকাভুক্ত করা হয়নি।"
         if update.callback_query:
-            await update.callback_query.edit_message_text(msg, parse_mode="Markdown")
+            await update.callback_query.edit_message_text(msg, parse_mode="HTML")
         else:
-            await update.message.reply_text(msg, parse_mode="Markdown")
+            await update.message.reply_text(msg, parse_mode="HTML")
         return
 
     buttons = []
     row = []
     for cat in cats:
-        icon = "🌐" if "Proxy" in cat else "🛡️" if "VPN" in cat else "✉️"
+        icon = "🌐" if "Proxy" in cat else "🛡️" if "VPN" in cat else "⚡"
         row.append(InlineKeyboardButton(f"{icon} {cat}", callback_data=f"buycat_{cat}"))
         if len(row) == 2:
             buttons.append(row)
             row = []
     if row:
         buttons.append(row)
-    buttons.append([InlineKeyboardButton("❌ Cancel", callback_data="cancel_action")])
+    buttons.append([InlineKeyboardButton("✖ Close Window", callback_data="cancel_action")])
 
+    text = (
+        f"{EMOJI['cart']} <b>EXCLUSIVE PRODUCT CATALOG</b>\n\n"
+        f"অনুগ্রহ করে আপনার প্রয়োজনীয় ক্যাটাগরি বেছে নিন:"
+    )
     if update.callback_query:
-        await update.callback_query.edit_message_text("🛒 *Buy Products*\n\nSelect a category:", reply_markup=InlineKeyboardMarkup(buttons), parse_mode="Markdown")
+        await update.callback_query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(buttons), parse_mode="HTML")
     else:
-        await update.message.reply_text("🛒 *Buy Products*\n\nSelect a category:", reply_markup=InlineKeyboardMarkup(buttons), parse_mode="Markdown")
+        await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(buttons), parse_mode="HTML")
 
 async def handle_buy_cat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -441,33 +463,40 @@ async def handle_buy_cat(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     conn = get_db()
     c = conn.cursor()
-    c.execute("SELECT id, name, price FROM products WHERE category=?", (category,))
+    c.execute("""
+        SELECT p.id, p.name, p.price, COUNT(s.id) as stock_cnt
+        FROM products p
+        LEFT JOIN stocks s ON p.id = s.product_id
+        WHERE p.category=?
+        GROUP BY p.id
+    """, (category,))
     prods = c.fetchall()
     conn.close()
 
     if not prods:
-        await query.edit_message_text(f"❌ No products under *{category}*.", parse_mode="Markdown")
+        await query.edit_message_text(f"{EMOJI['cross']} No products under <b>{category}</b>.", parse_mode="HTML")
         return
 
     buttons = []
     for p in prods:
-        buttons.append([InlineKeyboardButton(f"🔹 {p['name']} ❯ {p['price']:.0f} BDT", callback_data=f"selpkg_{p['id']}")])
+        buttons.append([InlineKeyboardButton(f"{p['name']} ❯ {p['price']:.0f}৳ [{p['stock_cnt']} left]", callback_data=f"selpkg_{p['id']}")])
     buttons.append([InlineKeyboardButton("🔙 Back to Categories", callback_data="back_to_cats")])
 
-    await query.edit_message_text(f"🛒 *Category: {category}*\n\nSelect a product:", reply_markup=InlineKeyboardMarkup(buttons), parse_mode="Markdown")
+    text = f"{EMOJI['box']} <b>Catalog: {category}</b>\n\nপ্যাকেজ নির্বাচন করুন:"
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(buttons), parse_mode="HTML")
 
 def build_purchase_summary_kb(qty: int, prod_id: int):
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton("➖", callback_data=f"qty_dec_{prod_id}_{qty}"),
-            InlineKeyboardButton(f"{qty}", callback_data="noop"),
+            InlineKeyboardButton(f"Count: {qty}", callback_data="noop"),
             InlineKeyboardButton("➕", callback_data=f"qty_inc_{prod_id}_{qty}")
         ],
         [
             InlineKeyboardButton("🔙 Back", callback_data="back_to_cats"),
-            InlineKeyboardButton("❌ Cancel", callback_data="cancel_action")
+            InlineKeyboardButton("✖ Cancel", callback_data="cancel_action")
         ],
-        [InlineKeyboardButton("✅ Confirm", callback_data=f"buy_confirm_{prod_id}_{qty}")]
+        [InlineKeyboardButton("💎 Confirm & Purchase", callback_data=f"buy_confirm_{prod_id}_{qty}")]
     ])
 
 async def show_purchase_summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -482,23 +511,24 @@ async def show_purchase_summary(update: Update, context: ContextTypes.DEFAULT_TY
     conn.close()
 
     if not prod:
-        await query.edit_message_text("❌ Product not found.")
+        await query.edit_message_text(f"{EMOJI['cross']} Product not found.")
         return
 
     qty = 1
     total_price = prod["price"] * qty
 
     summary_text = (
-        "🧾 *PURCHASE SUMMARY*\n"
-        "━━━━━━━━━━━━━━━━━━━━\n"
-        f"📁 *Category:* {prod['category']}\n"
-        f"🔹 *Package:* {prod['name']}\n"
-        "━━━━━━━━━━━━━━━━━━━━\n"
-        f"✅ *Quantity:* {qty}\n"
-        f"💲 *Rate:* {prod['price']:.2f} BDT\n"
-        f"🛒 *Total Price:* {total_price:.2f} BDT"
+        f"{EMOJI['sparkles']} <b>CHECKOUT SUMMARY</b>\n"
+        f"<b>━━━━━━━━━━━━━━━━━━━━</b>\n"
+        f"• <b>Category:</b> {prod['category']}\n"
+        f"• <b>Package:</b> <code>{prod['name']}</code>\n"
+        f"• <b>Unit Rate:</b> {prod['price']:.2f} BDT\n"
+        f"<b>━━━━━━━━━━━━━━━━━━━━</b>\n"
+        f"{EMOJI['cart']} <b>Order Quantity:</b> <code>{qty}</code>\n"
+        f"{EMOJI['money']} <b>Total Amount:</b> <b>{total_price:.2f} BDT</b>\n"
+        f"<b>━━━━━━━━━━━━━━━━━━━━</b>"
     )
-    await query.edit_message_text(summary_text, reply_markup=build_purchase_summary_kb(qty, prod_id), parse_mode="Markdown")
+    await query.edit_message_text(summary_text, reply_markup=build_purchase_summary_kb(qty, prod_id), parse_mode="HTML")
 
 async def update_quantity_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -522,16 +552,17 @@ async def update_quantity_callback(update: Update, context: ContextTypes.DEFAULT
     total_price = prod["price"] * qty
 
     summary_text = (
-        "🧾 *PURCHASE SUMMARY*\n"
-        "━━━━━━━━━━━━━━━━━━━━\n"
-        f"📁 *Category:* {prod['category']}\n"
-        f"🔹 *Package:* {prod['name']}\n"
-        "━━━━━━━━━━━━━━━━━━━━\n"
-        f"✅ *Quantity:* {qty}\n"
-        f"💲 *Rate:* {prod['price']:.2f} BDT\n"
-        f"🛒 *Total Price:* {total_price:.2f} BDT"
+        f"{EMOJI['sparkles']} <b>CHECKOUT SUMMARY</b>\n"
+        f"<b>━━━━━━━━━━━━━━━━━━━━</b>\n"
+        f"• <b>Category:</b> {prod['category']}\n"
+        f"• <b>Package:</b> <code>{prod['name']}</code>\n"
+        f"• <b>Unit Rate:</b> {prod['price']:.2f} BDT\n"
+        f"<b>━━━━━━━━━━━━━━━━━━━━</b>\n"
+        f"{EMOJI['cart']} <b>Order Quantity:</b> <code>{qty}</code>\n"
+        f"{EMOJI['money']} <b>Total Amount:</b> <b>{total_price:.2f} BDT</b>\n"
+        f"<b>━━━━━━━━━━━━━━━━━━━━</b>"
     )
-    await query.edit_message_text(summary_text, reply_markup=build_purchase_summary_kb(qty, prod_id), parse_mode="Markdown")
+    await query.edit_message_text(summary_text, reply_markup=build_purchase_summary_kb(qty, prod_id), parse_mode="HTML")
 
 async def confirm_purchase(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -565,7 +596,7 @@ async def confirm_purchase(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if len(stock_rows) < qty:
         conn.close()
-        await query.answer(f"❌ পর্যাপ্ত স্টক নেই! অবশিষ্ট আছে: {len(stock_rows)}", show_alert=True)
+        await query.answer(f"❌ পর্যাপ্ত স্টক নেই! অবশিষ্ট: {len(stock_rows)}", show_alert=True)
         return
 
     stock_ids = [s["id"] for s in stock_rows]
@@ -584,29 +615,35 @@ async def confirm_purchase(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if ":" in item:
             pts = item.split(":")
             if len(pts) >= 4:
-                formatted_creds.append(f"*Host:* `{pts[0]}` | *Port:* `{pts[1]}`\n*Username ❯* `{pts[2]}`\n*Password ❯* `{pts[3]}`")
+                formatted_creds.append(
+                    f"<b>Host:</b> <code>{pts[0]}</code> | <b>Port:</b> <code>{pts[1]}</code>\n"
+                    f"<b>User ❯</b> <code>{pts[2]}</code>\n"
+                    f"<b>Pass ❯</b> <code>{pts[3]}</code>"
+                )
             elif len(pts) == 2:
-                formatted_creds.append(f"*Username ❯* `{pts[0]}`\n*Password ❯* `{pts[1]}`")
+                formatted_creds.append(f"<b>User ❯</b> <code>{pts[0]}</code> | <b>Pass ❯</b> <code>{pts[1]}</code>")
             else:
-                formatted_creds.append(f"`{item}`")
+                formatted_creds.append(f"<code>{item}</code>")
         else:
-            formatted_creds.append(f"`{item}`")
+            formatted_creds.append(f"<code>{item}</code>")
 
     receipt = (
-        f"🎉 *{prod['category']} purchase successful!* ✅\n\n"
-        f"🔹 *Product:* {prod['name']}\n"
-        f"💲 *Remaining Balance:* {rem_bal:.2f} BDT\n\n"
-        f"⬇️ *Your Credentials:*\n\n"
+        f"{EMOJI['verified']} <b>DELIVERY DISPATCH CONFIRMED!</b>\n"
+        f"<b>━━━━━━━━━━━━━━━━━━━━</b>\n"
+        f"• <b>Item:</b> {prod['name']}\n"
+        f"• <b>Remaining Balance:</b> <code>{rem_bal:.2f} BDT</code>\n"
+        f"<b>━━━━━━━━━━━━━━━━━━━━</b>\n\n"
+        f"{EMOJI['key']} <b>YOUR CREDENTIALS:</b>\n\n"
         f"{'\n\n'.join(formatted_creds)}\n\n"
-        f"🔥 _Thank you for shopping with us!_"
+        f"{EMOJI['fire']} <i>Thank you for choosing our automated store!</i>"
     )
-    await query.edit_message_text(receipt, parse_mode="Markdown")
+    await query.edit_message_text(receipt, parse_mode="HTML")
 
-# --- BROADCAST (VOICE / TEXT / PHOTO) ---
+# --- BROADCAST SYSTEM ---
 async def start_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
         return
-    await update.message.reply_text("📢 ব্রডকাস্ট মেসেজ, ভয়েস অথবা ফটো সেন্ড করুন (অথবা /cancel):")
+    await update.message.reply_text(f"{EMOJI['bell']} ব্রডকাস্ট মেসেজ, ভয়েস অথবা ফটো সেন্ড করুন (অথবা /cancel):", parse_mode="HTML")
     return BROADCAST_RECEIVE
 
 async def execute_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -616,7 +653,7 @@ async def execute_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     users = c.fetchall()
     conn.close()
 
-    status_msg = await update.message.reply_text("🚀 Broadcasting...")
+    status_msg = await update.message.reply_text("🚀 Broadcasting to audience...")
     success, failed = 0, 0
 
     for u in users:
@@ -632,14 +669,24 @@ async def execute_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             failed += 1
 
-    await status_msg.edit_text(f"📢 *Broadcast Report:*\n\n✅ Delivered: `{success}`\n❌ Failed: `{failed}`", parse_mode="Markdown")
+    await status_msg.edit_text(
+        f"{EMOJI['verified']} <b>BROADCAST REPORT</b>\n\n"
+        f"• Delivered: <code>{success}</code>\n"
+        f"• Failed: <code>{failed}</code>",
+        parse_mode="HTML"
+    )
     return ConversationHandler.END
 
 # --- ADMIN PANEL & LIVE STOCK ---
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
         return
-    await update.message.reply_text("👑 *Admin Control Panel*", reply_markup=get_admin_menu(), parse_mode="Markdown")
+    text = (
+        f"{EMOJI['crown']} <b>EXECUTIVE CONTROL CONSOLE</b>\n"
+        f"<b>━━━━━━━━━━━━━━━━━━━━</b>\n"
+        f"Welcome, Super Admin. Manage services, inventory, and users below:"
+    )
+    await update.message.reply_text(text, reply_markup=get_admin_menu(), parse_mode="HTML")
 
 async def live_stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn = get_db()
@@ -654,15 +701,15 @@ async def live_stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn.close()
 
     if not rows:
-        await update.message.reply_text("🌐 *Live Stock*\n\nকোনো প্রোডাক্ট এখনো যোগ করা হয়নি।", parse_mode="Markdown")
+        await update.message.reply_text(f"{EMOJI['box']} <b>স্টক খালি!</b> কোনো আইটেম পাওয়া যায়নি।", parse_mode="HTML")
         return
 
-    msg = "🌐 *Live Stock Feed*\n━━━━━━━━━━━━━━━━━━━━\n\n"
+    msg = f"{EMOJI['box']} <b>LIVE INVENTORY FEED</b>\n<b>━━━━━━━━━━━━━━━━━━━━</b>\n\n"
     for r in rows:
-        msg += f"📦 *{r['name']}* | `{r['price']:.0f}৳`\n• Category: {r['category']} | Stock: `{r['stock_count']}`\n\n"
-    await update.message.reply_text(msg, parse_mode="Markdown")
+        msg += f"<b>{r['name']}</b> ❯ <code>{r['price']:.0f} BDT</code>\n↳ Category: <i>{r['category']}</i> | Stock: <b>{r['stock_count']}</b>\n\n"
+    await update.message.reply_text(msg, parse_mode="HTML")
 
-# --- ADD STOCK ---
+# --- STOCK MANAGEMENT ---
 async def add_stock_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
         return
@@ -673,11 +720,11 @@ async def add_stock_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn.close()
 
     if not prods:
-        await update.message.reply_text("❌ আগে প্রোডাক্ট অ্যাড করুন, তারপর স্টক আপলোড করতে পারবেন।")
+        await update.message.reply_text(f"{EMOJI['cross']} আগে প্রোডাক্ট অ্যাড করুন, তারপর স্টক আপলোড করতে পারবেন।", parse_mode="HTML")
         return
 
-    buttons = [[InlineKeyboardButton(p["name"], callback_data=f"upstock_{p['id']}")] for p in prods]
-    await update.message.reply_text("🗂️ কোন প্রোডাক্টে স্টক অ্যাড করবেন তা বেছে নিন:", reply_markup=InlineKeyboardMarkup(buttons))
+    buttons = [[InlineKeyboardButton(f"📦 {p['name']}", callback_data=f"upstock_{p['id']}")] for p in prods]
+    await update.message.reply_text(f"{EMOJI['box']} কোন প্রোডাক্টে স্টক অ্যাড করবেন বেছে নিন:", reply_markup=InlineKeyboardMarkup(buttons), parse_mode="HTML")
 
 async def handle_prepare_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -692,13 +739,12 @@ async def handle_prepare_upload(update: Update, context: ContextTypes.DEFAULT_TY
     conn.close()
 
     msg = (
-        f"🗂️ *Upload Stock for:* `{prod_name}`\n\n"
-        "Send an *Excel (.xlsx)* or *Text (.txt)* file:\n\n"
-        "📌 *Supported Formats:*\n"
-        "✏️ *TXT File:* `Host:Port:Username:Password`\n"
-        "🧪 *Excel File:* Col A=Host, B=Port, C=User, D=Pass"
+        f"{EMOJI['gear']} <b>Upload Stock for:</b> <code>{prod_name}</code>\n\n"
+        f"Send an <b>Excel (.xlsx)</b> or <b>Text (.txt)</b> file:\n\n"
+        f"• <b>TXT File:</b> <code>Host:Port:User:Pass</code>\n"
+        f"• <b>Excel:</b> Col A=Host, B=Port, C=User, D=Pass"
     )
-    await query.edit_message_text(msg, parse_mode="Markdown")
+    await query.edit_message_text(msg, parse_mode="HTML")
     return UPLOAD_STOCK
 
 async def process_stock_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -726,22 +772,22 @@ async def process_stock_file(update: Update, context: ContextTypes.DEFAULT_TYPE)
         c.executemany("INSERT INTO stocks (product_id, data) VALUES (?, ?)", [(prod_id, item) for item in entries])
         conn.commit()
         conn.close()
-        await update.message.reply_text(f"✅ সফলভাবে `{len(entries)}` টি স্টক যুক্ত হয়েছে!", parse_mode="Markdown", reply_markup=get_admin_menu())
+        await update.message.reply_text(f"{EMOJI['verified']} সফলভাবে <code>{len(entries)}</code> টি স্টক ইনসার্ট হয়েছে!", parse_mode="HTML", reply_markup=get_admin_menu())
     else:
-        await update.message.reply_text("❌ ফাইল থেকে কোনো ডাটা পড়া সম্ভব হয়নি।")
+        await update.message.reply_text(f"{EMOJI['cross']} ফাইল থেকে কোনো ডাটা পড়া সম্ভব হয়নি।", parse_mode="HTML")
     return ConversationHandler.END
 
-# --- PRODUCT MANAGEMENT (ADD / PRICE / DELETE / CLEAR) ---
+# --- PRODUCT CRUD ---
 async def product_management_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
         return
     kb = [
-        [InlineKeyboardButton("👑 Add New Product", callback_data="prodman_add")],
-        [InlineKeyboardButton("💰 Change Price", callback_data="prodman_chprice")],
-        [InlineKeyboardButton("❌ Delete Product", callback_data="prodman_delprod")],
-        [InlineKeyboardButton("🧨 Clear All Stock", callback_data="prodman_delstock")],
+        [InlineKeyboardButton("➕ Add New Product", callback_data="prodman_add")],
+        [InlineKeyboardButton("💰 Edit Product Price", callback_data="prodman_chprice")],
+        [InlineKeyboardButton("🗑️ Remove Product", callback_data="prodman_delprod")],
+        [InlineKeyboardButton("🧨 Purge All Stock", callback_data="prodman_delstock")],
     ]
-    await update.message.reply_text("⚙️ *Product Management Console*", reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
+    await update.message.reply_text(f"{EMOJI['gear']} <b>Product Management Suite</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
 
 async def handle_prodman_actions(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -753,14 +799,14 @@ async def handle_prodman_actions(update: Update, context: ContextTypes.DEFAULT_T
 
     if act == "add":
         conn.close()
-        await query.edit_message_text("ক্যাটাগরির নাম লিখুন (যেমন: Proxy, VPN, Mail):")
+        await query.edit_message_text(f"{EMOJI['tag']} ক্যাটাগরির নাম লিখুন (যেমন: Proxy, VPN, Mail):", parse_mode="HTML")
         return ADD_PROD_CAT
     elif act == "delprod":
         c.execute("SELECT id, name FROM products")
         prods = c.fetchall()
         conn.close()
         if not prods:
-            await query.edit_message_text("❌ কোনো প্রোডাক্ট নেই।")
+            await query.edit_message_text(f"{EMOJI['cross']} কোনো প্রোডাক্ট নেই।", parse_mode="HTML")
             return
         kb = [[InlineKeyboardButton(f"❌ {p['name']}", callback_data=f"delp_{p['id']}")] for p in prods]
         kb.append([InlineKeyboardButton("🔙 Cancel", callback_data="cancel_action")])
@@ -778,16 +824,16 @@ async def handle_prodman_actions(update: Update, context: ContextTypes.DEFAULT_T
         conn.close()
         kb = [[InlineKeyboardButton(f"✏️ {p['name']}", callback_data=f"chpr_{p['id']}")] for p in prods]
         kb.append([InlineKeyboardButton("🔙 Cancel", callback_data="cancel_action")])
-        await query.edit_message_text("কোন প্রোডাক্টের দাম পাল্টাবেন?", reply_markup=InlineKeyboardMarkup(kb))
+        await query.edit_message_text("কোন প্রোডাক্টের দাম পরিবর্তন করবেন?", reply_markup=InlineKeyboardMarkup(kb))
 
 async def save_add_prod_cat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["new_cat"] = update.message.text.strip()
-    await update.message.reply_text("প্রোডাক্টের নাম লিখুন (যেমন: 711 PROXY 1 GB):")
+    await update.message.reply_text(f"{EMOJI['box']} প্রোডাক্টের নাম লিখুন (যেমন: 711 PROXY 1 GB):", parse_mode="HTML")
     return ADD_PROD_NAME
 
 async def save_add_prod_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["new_name"] = update.message.text.strip()
-    await update.message.reply_text("সাধারণ মূল্য এবং রিসেলার মূল্য স্পেস দিয়ে লিখুন (যেমন: `70 65`):", parse_mode="Markdown")
+    await update.message.reply_text(f"{EMOJI['money']} সাধারণ ও রিসেলার মূল্য স্পেস দিয়ে লিখুন (যেমন: <code>70 65</code>):", parse_mode="HTML")
     return ADD_PROD_PRICE
 
 async def save_add_prod_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -796,7 +842,7 @@ async def save_add_prod_price(update: Update, context: ContextTypes.DEFAULT_TYPE
         price = float(parts[0])
         reseller = float(parts[1]) if len(parts) > 1 else price
     except Exception:
-        await update.message.reply_text("❌ সঠিক সংখ্যা লিখুন (যেমন: `70 65`):")
+        await update.message.reply_text(f"{EMOJI['cross']} সঠিক সংখ্যা লিখুন (যেমন: 70 65):", parse_mode="HTML")
         return ADD_PROD_PRICE
 
     conn = get_db()
@@ -805,7 +851,7 @@ async def save_add_prod_price(update: Update, context: ContextTypes.DEFAULT_TYPE
               (context.user_data.get("new_cat"), context.user_data.get("new_name"), price, reseller))
     conn.commit()
     conn.close()
-    await update.message.reply_text("✅ প্রোডাক্ট সফলভাবে তৈরি এবং লিস্ট করা হয়েছে!", reply_markup=get_admin_menu())
+    await update.message.reply_text(f"{EMOJI['verified']} প্রোডাক্ট সফলভাবে ডাটাবেজে তৈরি হয়েছে!", reply_markup=get_admin_menu(), parse_mode="HTML")
     return ConversationHandler.END
 
 async def delete_single_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -818,7 +864,7 @@ async def delete_single_product(update: Update, context: ContextTypes.DEFAULT_TY
     c.execute("DELETE FROM products WHERE id=?", (pid,))
     conn.commit()
     conn.close()
-    await query.edit_message_text("✅ প্রোডাক্ট এবং তার সমস্ত স্টক ডিলিট করা হয়েছে!")
+    await query.edit_message_text(f"{EMOJI['verified']} প্রোডাক্ট ও তার সব স্টক ডিলিট হয়েছে।", parse_mode="HTML")
 
 async def clear_product_stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -829,13 +875,13 @@ async def clear_product_stock(update: Update, context: ContextTypes.DEFAULT_TYPE
     c.execute("DELETE FROM stocks WHERE product_id=?", (pid,))
     conn.commit()
     conn.close()
-    await query.edit_message_text("✅ সব স্টক ডিলিট করা হয়েছে!")
+    await query.edit_message_text(f"{EMOJI['verified']} সম্পূর্ণ স্টক খালি করা হয়েছে।", parse_mode="HTML")
 
 async def select_prod_for_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     context.user_data["ch_prod_id"] = int(query.data.replace("chpr_", ""))
-    await query.edit_message_text("নতুন রেগুলার ও রিসেলার মূল্য দিন (যেমন: `65 60`):", parse_mode="Markdown")
+    await query.edit_message_text("নতুন রেগুলার ও রিসেলার মূল্য লিখুন (যেমন: <code>65 60</code>):", parse_mode="HTML")
     return CHANGE_PRICE_VAL
 
 async def save_new_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -844,7 +890,7 @@ async def save_new_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
         price = float(parts[0])
         reseller = float(parts[1]) if len(parts) > 1 else price
     except Exception:
-        await update.message.reply_text("❌ সঠিক সংখ্যা দিন (যেমন: `65 60`):")
+        await update.message.reply_text(f"{EMOJI['cross']} সঠিক সংখ্যা দিন (যেমন: 65 60):", parse_mode="HTML")
         return CHANGE_PRICE_VAL
 
     pid = context.user_data.get("ch_prod_id")
@@ -853,14 +899,14 @@ async def save_new_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
     c.execute("UPDATE products SET price=?, reseller_price=? WHERE id=?", (price, reseller, pid))
     conn.commit()
     conn.close()
-    await update.message.reply_text("✅ মূল্য আপডেট করা হয়েছে!", reply_markup=get_admin_menu())
+    await update.message.reply_text(f"{EMOJI['verified']} প্রাইস সফলভাবে আপডেট হয়েছে!", reply_markup=get_admin_menu(), parse_mode="HTML")
     return ConversationHandler.END
 
-# --- USER MANAGEMENT (SEARCH / BAN / BALANCE / MSG) ---
+# --- USER MANAGEMENT SUITE ---
 async def user_management(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
         return
-    await update.message.reply_text("👥 ইউজারের টেলিগ্রাম ID বা Username দিন (যেমন: 7072296433):")
+    await update.message.reply_text(f"{EMOJI['profile']} ইউজারের Telegram Numeric ID বা Username দিন:", parse_mode="HTML")
     return FIND_USER
 
 async def search_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -876,35 +922,34 @@ async def search_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn.close()
 
     if not u:
-        await update.message.reply_text("❌ ইউজার খুঁজে পাওয়া যায়নি।")
+        await update.message.reply_text(f"{EMOJI['cross']} ইউজার খুঁজে পাওয়া যায়নি।", parse_mode="HTML")
         return ConversationHandler.END
 
     target_id = u["user_id"]
     context.user_data["target_uid"] = target_id
     balance = u["balance"]
     usd = balance / 125.0
-    status = "Banned" if u["is_banned"] else "Active"
+    status = f"{EMOJI['cross']} Banned" if u["is_banned"] else f"{EMOJI['verified']} Active"
 
     card = (
-        "╔═══════════════════════════╗\n"
-        "      👥  *MANAGE USER*     \n"
-        "╚═══════════════════════════╝\n"
-        f"• *Name:* {u['name']}\n"
-        f"• *ID:* `{target_id}`\n"
-        f"• *Username:* @{u['username']}\n"
-        f"• *Balance:* `{balance:.2f} BDT` (~${usd:.2f} USD)\n"
-        f"• *Orders:* `{u['orders']}`\n"
-        f"• *Status:* {'🚫 Banned' if status == 'Banned' else '✅ Active'}\n"
-        "───────────────────────────"
+        f"{EMOJI['profile']} <b>USER MANAGEMENT PROFILE</b>\n"
+        f"<b>━━━━━━━━━━━━━━━━━━━━</b>\n"
+        f"• <b>Name:</b> {u['name']}\n"
+        f"• <b>User ID:</b> <code>{target_id}</code>\n"
+        f"• <b>Username:</b> @{u['username']}\n"
+        f"• <b>Balance:</b> <code>{balance:.2f} BDT</code> (~${usd:.2f})\n"
+        f"• <b>Orders:</b> <code>{u['orders']}</code>\n"
+        f"• <b>Status:</b> {status}\n"
+        f"<b>━━━━━━━━━━━━━━━━━━━━</b>"
     )
 
     kb = [
-        [InlineKeyboardButton("🚫 Ban / Unban", callback_data=f"uact_ban_{target_id}")],
+        [InlineKeyboardButton("🚫 Toggle Ban", callback_data=f"uact_ban_{target_id}")],
         [InlineKeyboardButton("➕ Add Balance", callback_data=f"uact_add_{target_id}"),
-         InlineKeyboardButton("➖ Cut Balance", callback_data=f"uact_cut_{target_id}")],
-        [InlineKeyboardButton("✉️ Send Message", callback_data=f"uact_msg_{target_id}")]
+         InlineKeyboardButton("➖ Deduct Balance", callback_data=f"uact_cut_{target_id}")],
+        [InlineKeyboardButton("✉️ Direct Message", callback_data=f"uact_msg_{target_id}")]
     ]
-    await update.message.reply_text(card, reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
+    await update.message.reply_text(card, reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
     return ConversationHandler.END
 
 async def user_actions_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -922,21 +967,21 @@ async def user_actions_callback(update: Update, context: ContextTypes.DEFAULT_TY
         c.execute("UPDATE users SET is_banned=? WHERE user_id=?", (0 if curr else 1, int(uid)))
         conn.commit()
         conn.close()
-        await query.edit_message_text(f"✅ User ID `{uid}` Ban Status: `{bool(not curr)}`", parse_mode="Markdown")
+        await query.edit_message_text(f"{EMOJI['verified']} User <code>{uid}</code> Ban Status: <code>{bool(not curr)}</code>", parse_mode="HTML")
         return ConversationHandler.END
     elif action in ["add", "cut"]:
         context.user_data["bal_op"] = action
-        await query.edit_message_text("টাকার পরিমাণ লিখুন (in BDT):")
+        await query.edit_message_text(f"{EMOJI['money']} টাকার পরিমাণ লিখুন (BDT):", parse_mode="HTML")
         return USER_ACTION_AMOUNT
     elif action == "msg":
-        await query.edit_message_text("ইউজারকে পাঠানো বার্তাটি লিখুন:")
+        await query.edit_message_text(f"{EMOJI['sparkles']} ইউজারকে পাঠানো মেসেজটি টাইপ করুন:", parse_mode="HTML")
         return USER_SEND_MSG
 
 async def apply_user_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         amt = float(update.message.text.strip())
     except ValueError:
-        await update.message.reply_text("❌ সঠিক সংখ্যা লিখুন:")
+        await update.message.reply_text(f"{EMOJI['cross']} সঠিক সংখ্যা লিখুন:", parse_mode="HTML")
         return USER_ACTION_AMOUNT
 
     uid = context.user_data.get("action_uid")
@@ -949,20 +994,20 @@ async def apply_user_balance(update: Update, context: ContextTypes.DEFAULT_TYPE)
     conn.commit()
     conn.close()
 
-    await update.message.reply_text(f"✅ User `{uid}` এর ব্যালেন্সে `{delta:+.2f} BDT` আপডেট হয়েছে।", parse_mode="Markdown", reply_markup=get_admin_menu())
+    await update.message.reply_text(f"{EMOJI['verified']} User <code>{uid}</code> ব্যালেন্স আপডেট: <code>{delta:+.2f} BDT</code>", parse_mode="HTML", reply_markup=get_admin_menu())
     return ConversationHandler.END
 
 async def send_user_direct_msg(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = context.user_data.get("action_uid")
     msg_text = update.message.text
     try:
-        await context.bot.send_message(chat_id=uid, text=f"💬 *Message from Admin:*\n\n{msg_text}", parse_mode="Markdown")
-        await update.message.reply_text("✅ বার্তা সফলভাবে পাঠানো হয়েছে!", reply_markup=get_admin_menu())
+        await context.bot.send_message(chat_id=uid, text=f"{EMOJI['bell']} <b>Official Message from Admin:</b>\n\n{msg_text}", parse_mode="HTML")
+        await update.message.reply_text(f"{EMOJI['verified']} বার্তা সফলভাবে পৌঁছে দেওয়া হয়েছে!", reply_markup=get_admin_menu(), parse_mode="HTML")
     except Exception as e:
-        await update.message.reply_text(f"❌ পাঠানো যায়নি: {e}")
+        await update.message.reply_text(f"{EMOJI['cross']} পাঠানো যায়নি: {e}", parse_mode="HTML")
     return ConversationHandler.END
 
-# --- PAYMENT SETTINGS ---
+# --- GATEWAY SETTINGS ---
 async def payment_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
         return
@@ -974,20 +1019,18 @@ async def payment_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     rate = data.get("dollar_rate", "125.0")
 
     keyboard = [
-        [InlineKeyboardButton("Edit bKash Number", callback_data="payedit_bkash")],
-        [InlineKeyboardButton("Edit Nagad Number", callback_data="payedit_nagad")],
-        [InlineKeyboardButton("Edit Rocket Number", callback_data="payedit_rocket")],
-        [InlineKeyboardButton("Edit Binance Pay ID", callback_data="payedit_binance")],
-        [InlineKeyboardButton(f"Edit Dollar Rate (Current: {rate} BDT)", callback_data="payedit_dollar_rate")],
+        [InlineKeyboardButton("📱 bKash Number", callback_data="payedit_bkash"), InlineKeyboardButton("📱 Nagad Number", callback_data="payedit_nagad")],
+        [InlineKeyboardButton("📱 Rocket Number", callback_data="payedit_rocket"), InlineKeyboardButton("🪙 Binance Pay ID", callback_data="payedit_binance")],
+        [InlineKeyboardButton(f"💵 Dollar Rate: {rate} BDT", callback_data="payedit_dollar_rate")],
     ]
-    await update.message.reply_text("💳 *Select Payment Setting to Update:*", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    await update.message.reply_text(f"{EMOJI['card']} <b>Select Gateway Parameter to Edit:</b>", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
 
 async def handle_payment_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     field = query.data.replace("payedit_", "")
     context.user_data["editing_pay_field"] = field
-    await query.edit_message_text(f"নতুন মান লিখুন for `{field}`:")
+    await query.edit_message_text(f"নতুন মান লিখুন for <code>{field}</code>:", parse_mode="HTML")
     return EDIT_PAYMENT_VALUE
 
 async def save_payment_value(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -998,12 +1041,12 @@ async def save_payment_value(update: Update, context: ContextTypes.DEFAULT_TYPE)
     c.execute("INSERT OR REPLACE INTO settings (key, val) VALUES (?, ?)", (field, val))
     conn.commit()
     conn.close()
-    await update.message.reply_text(f"✅ `{field}` আপডেট হয়েছে!", parse_mode="Markdown", reply_markup=get_admin_menu())
+    await update.message.reply_text(f"{EMOJI['verified']} <code>{field}</code> সফলভাবে আপডেট হয়েছে!", parse_mode="HTML", reply_markup=get_admin_menu())
     return ConversationHandler.END
 
-# --- VOUCHER MANAGEMENT (REDEEM / CREATE) ---
+# --- VOUCHER STUDIO ---
 async def get_code_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🏷️ *Enter your Voucher Code:*", parse_mode="Markdown")
+    await update.message.reply_text(f"{EMOJI['tag']} <b>Enter your Gift/Voucher Code:</b>", parse_mode="HTML")
     return REDEEM_VOUCHER
 
 async def redeem_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1016,12 +1059,12 @@ async def redeem_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not v:
         conn.close()
-        await update.message.reply_text("❌ ভুল বা অবৈধ ভাউচার কোড।")
+        await update.message.reply_text(f"{EMOJI['cross']} অবৈধ বা ভুল ভাউচার কোড!", parse_mode="HTML")
         return ConversationHandler.END
 
     if v["used"]:
         conn.close()
-        await update.message.reply_text("❌ এই ভাউচার কোডটি ইতোমধ্যে ব্যবহার করা হয়েছে।")
+        await update.message.reply_text(f"{EMOJI['cross']} এই ভাউচার কোডটি ইতোমধ্যে ব্যবহার করা হয়ে গেছে।", parse_mode="HTML")
         return ConversationHandler.END
 
     amt = v["amount"]
@@ -1030,25 +1073,25 @@ async def redeem_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn.commit()
     conn.close()
 
-    await update.message.reply_text(f"🎉 *অভিনন্দন!* `{amt:.2f} BDT` আপনার ব্যালেন্সে যোগ হয়েছে।", parse_mode="Markdown")
+    await update.message.reply_text(f"{EMOJI['sparkles']} <b>অভিনন্দন!</b> <code>{amt:.2f} BDT</code> আপনার একাউন্টে যুক্ত হয়েছে।", parse_mode="HTML")
     return ConversationHandler.END
 
 async def voucher_management(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
         return
-    await update.message.reply_text("নতুন ভাউচার কোড দিন (যেমন: `OFFER50`):")
+    await update.message.reply_text(f"{EMOJI['tag']} নতুন ভাউচার কোড টাইপ করুন (যেমন: <code>OFFER50</code>):", parse_mode="HTML")
     return ADD_VOUCHER_CODE
 
 async def get_v_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["new_v_code"] = update.message.text.strip().upper()
-    await update.message.reply_text("রিওয়ার্ডের টাকার পরিমাণ লিখুন (in BDT):")
+    await update.message.reply_text(f"{EMOJI['money']} ভাউচারের রিওয়ার্ড ব্যালেন্স লিখুন (BDT):", parse_mode="HTML")
     return ADD_VOUCHER_BAL
 
 async def get_v_bal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         amt = float(update.message.text.strip())
     except ValueError:
-        await update.message.reply_text("❌ সংখ্যা লিখুন:")
+        await update.message.reply_text(f"{EMOJI['cross']} সঠিক সংখ্যা লিখুন:", parse_mode="HTML")
         return ADD_VOUCHER_BAL
 
     code = context.user_data.get("new_v_code")
@@ -1058,7 +1101,7 @@ async def get_v_bal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn.commit()
     conn.close()
 
-    await update.message.reply_text(f"✅ ভাউচার `{code}` তৈরি হয়েছে ({amt:.2f} BDT)!", parse_mode="Markdown", reply_markup=get_admin_menu())
+    await update.message.reply_text(f"{EMOJI['verified']} ভাউচার <code>{code}</code> তৈরি হয়েছে (মান: {amt:.2f} BDT)!", parse_mode="HTML", reply_markup=get_admin_menu())
     return ConversationHandler.END
 
 # --- ADMIN DELEGATION ---
@@ -1066,17 +1109,17 @@ async def admin_management_menu(update: Update, context: ContextTypes.DEFAULT_TY
     if int(update.effective_user.id) != int(SUPER_ADMIN_ID):
         return
     kb = [
-        [InlineKeyboardButton("👑 Add Admin", callback_data="admin_add")],
-        [InlineKeyboardButton("❌ Remove Admin", callback_data="admin_del")]
+        [InlineKeyboardButton("➕ Grant New Admin", callback_data="admin_add")],
+        [InlineKeyboardButton("🗑️ Revoke Admin", callback_data="admin_del")]
     ]
-    await update.message.reply_text("👑 *Admin Management*", reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
+    await update.message.reply_text(f"{EMOJI['key']} <b>ADMIN PRIVILEGE CONTROL</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
 
 async def handle_admin_manage_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     act = query.data.replace("admin_", "")
     if act == "add":
-        await query.edit_message_text("নতুন অ্যাডমিনের Telegram Numeric ID দিন:")
+        await query.edit_message_text(f"{EMOJI['profile']} নতুন অ্যাডমিনের Telegram Numeric ID দিন:", parse_mode="HTML")
         return ADD_ADMIN_ID
     else:
         conn = get_db()
@@ -1085,19 +1128,19 @@ async def handle_admin_manage_cb(update: Update, context: ContextTypes.DEFAULT_T
         admins = c.fetchall()
         conn.close()
         kb = [[InlineKeyboardButton(f"❌ {a['key'].replace('admin_', '')}", callback_data=f"deladm_{a['key']}")] for a in admins]
-        await query.edit_message_text("কাকে অ্যাডমিন থেকে রিমুভ করবেন?", reply_markup=InlineKeyboardMarkup(kb))
+        await query.edit_message_text("কাকে অ্যাডমিন রোল থেকে বাদ দিতে চান?", reply_markup=InlineKeyboardMarkup(kb))
 
 async def save_new_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     aid = update.message.text.strip()
     if not aid.isdigit():
-        await update.message.reply_text("❌ শুধুমাত্র সংখ্যা আইডি দিন:")
+        await update.message.reply_text(f"{EMOJI['cross']} শুধুমাত্র সংখ্যা আইডি দিন:", parse_mode="HTML")
         return ADD_ADMIN_ID
     conn = get_db()
     c = conn.cursor()
     c.execute("INSERT OR REPLACE INTO settings (key, val) VALUES (?, '1')", (f"admin_{aid}",))
     conn.commit()
     conn.close()
-    await update.message.reply_text(f"✅ User ID `{aid}` কে অ্যাডমিন করা হয়েছে!", parse_mode="Markdown", reply_markup=get_admin_menu())
+    await update.message.reply_text(f"{EMOJI['verified']} User <code>{aid}</code> কে সফলভাবে অ্যাডমিন ক্ষমতা দেওয়া হয়েছে!", parse_mode="HTML", reply_markup=get_admin_menu())
     return ConversationHandler.END
 
 async def del_admin_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1109,19 +1152,19 @@ async def del_admin_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     c.execute("DELETE FROM settings WHERE key=?", (key,))
     conn.commit()
     conn.close()
-    await query.edit_message_text("✅ অ্যাডমিন রিমুভ করা হয়েছে!")
+    await query.edit_message_text(f"{EMOJI['verified']} অ্যাডমিন রোল প্রত্যাহার করা হয়েছে!", parse_mode="HTML")
 
-# --- RESELLER, SUPPORT, TUTORIAL, FORCE JOIN ---
+# --- RESELLER, SUPPORT & CHANNELS ---
 async def reseller_management(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
         return
-    await update.message.reply_text("রিসেলার রোল টগল করতে ইউজারের টেলিগ্রাম ID দিন:")
+    await update.message.reply_text(f"{EMOJI['crown']} রিসেলার স্ট্যাটাস পরিবর্তন করতে ইউজারের ID দিন:", parse_mode="HTML")
     return RESELLER_UID
 
 async def save_reseller_toggle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.message.text.strip()
     if not uid.isdigit():
-        await update.message.reply_text("❌ সঠিক সংখ্যা আইডি দিন।")
+        await update.message.reply_text(f"{EMOJI['cross']} সঠিক আইডি দিন।", parse_mode="HTML")
         return ConversationHandler.END
 
     conn = get_db()
@@ -1130,7 +1173,7 @@ async def save_reseller_toggle(update: Update, context: ContextTypes.DEFAULT_TYP
     row = c.fetchone()
     if not row:
         conn.close()
-        await update.message.reply_text("❌ ইউজার পাওয়া যায়নি।")
+        await update.message.reply_text(f"{EMOJI['cross']} ইউজার পাওয়া যায়নি।", parse_mode="HTML")
         return ConversationHandler.END
 
     status = 0 if row["is_reseller"] else 1
@@ -1138,13 +1181,13 @@ async def save_reseller_toggle(update: Update, context: ContextTypes.DEFAULT_TYP
     conn.commit()
     conn.close()
 
-    await update.message.reply_text(f"✅ User `{uid}` এর Reseller স্ট্যাটাস: `{'Active' if status else 'Revoked'}`", parse_mode="Markdown", reply_markup=get_admin_menu())
+    await update.message.reply_text(f"{EMOJI['verified']} User <code>{uid}</code> Reseller স্ট্যাটাস: <b>{'Active' if status else 'Revoked'}</b>", parse_mode="HTML", reply_markup=get_admin_menu())
     return ConversationHandler.END
 
 async def prompt_support_setup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
         return
-    await update.message.reply_text("সাপোর্ট লিংক পাঠান (যেমন: `https://t.me/admin`):")
+    await update.message.reply_text(f"{EMOJI['gear']} সাপোর্ট লিংক দিন (যেমন: <code>https://t.me/admin</code>):", parse_mode="HTML")
     return SETUP_SUPPORT
 
 async def save_support_setup(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1154,13 +1197,13 @@ async def save_support_setup(update: Update, context: ContextTypes.DEFAULT_TYPE)
     c.execute("INSERT OR REPLACE INTO settings (key, val) VALUES ('support_link', ?)", (link,))
     conn.commit()
     conn.close()
-    await update.message.reply_text("✅ সাপোর্ট লিংক সংরক্ষিত হয়েছে!", reply_markup=get_admin_menu())
+    await update.message.reply_text(f"{EMOJI['verified']} সাপোর্ট লিংক সেভ হয়েছে!", reply_markup=get_admin_menu(), parse_mode="HTML")
     return ConversationHandler.END
 
 async def prompt_tutorial_setup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
         return
-    await update.message.reply_text("টিউটোরিয়াল ভিডিও লিংক দিন:")
+    await update.message.reply_text(f"{EMOJI['fire']} নতুন ভিডিও টিউটোরিয়াল লিংক দিন:", parse_mode="HTML")
     return SETUP_TUTORIAL
 
 async def save_tutorial_setup(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1170,13 +1213,13 @@ async def save_tutorial_setup(update: Update, context: ContextTypes.DEFAULT_TYPE
     c.execute("INSERT OR REPLACE INTO settings (key, val) VALUES ('tutorial_link', ?)", (link,))
     conn.commit()
     conn.close()
-    await update.message.reply_text("✅ টিউটোরিয়াল লিংক সংরক্ষিত হয়েছে!", reply_markup=get_admin_menu())
+    await update.message.reply_text(f"{EMOJI['verified']} ভিডিও লিংক আপডেট করা হয়েছে!", reply_markup=get_admin_menu(), parse_mode="HTML")
     return ConversationHandler.END
 
 async def prompt_force_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
         return
-    await update.message.reply_text("ফোর্স জয়েন চ্যানেলের ইউজারনেম দিন (যেমন: `@MyChannel`):")
+    await update.message.reply_text(f"{EMOJI['bell']} ফোর্স জয়েন চ্যানেলের নাম দিন (যেমন: <code>@MyChannel</code>):", parse_mode="HTML")
     return SETUP_FORCE_JOIN
 
 async def save_force_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1186,10 +1229,10 @@ async def save_force_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
     c.execute("INSERT OR REPLACE INTO settings (key, val) VALUES ('force_channel', ?)", (ch,))
     conn.commit()
     conn.close()
-    await update.message.reply_text("✅ ফোর্স জয়েন চ্যানেল আপডেট হয়েছে!", reply_markup=get_admin_menu())
+    await update.message.reply_text(f"{EMOJI['verified']} ফোর্স জয়েন চ্যানেল আপডেট করা হয়েছে!", reply_markup=get_admin_menu(), parse_mode="HTML")
     return ConversationHandler.END
 
-# --- DEPOSIT APPROVAL / REJECTION & HISTORY ---
+# --- DEPOSIT APPROVALS & HISTORY ---
 async def show_deposit_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
         return
@@ -1200,23 +1243,27 @@ async def show_deposit_requests(update: Update, context: ContextTypes.DEFAULT_TY
     conn.close()
 
     if not reqs:
-        await update.message.reply_text("✅ কোনো পেন্ডিং ডিপোজিট নেই।")
+        await update.message.reply_text(f"{EMOJI['verified']} কোনো পেন্ডিং ডিপোজিট রিকোয়েস্ট নেই।", parse_mode="HTML")
         return
 
     for r in reqs:
-        kb = [[InlineKeyboardButton("✅ Approve", callback_data=f"depapp_{r['id']}"),
-               InlineKeyboardButton("❌ Reject", callback_data=f"deprej_{r['id']}")]]
+        kb = [[
+            InlineKeyboardButton("✅ Approve", callback_data=f"depapp_{r['id']}"),
+            InlineKeyboardButton("❌ Reject", callback_data=f"deprej_{r['id']}")
+        ]]
         card = (
-            f"🔔 *PENDING DEPOSIT*\n"
-            f"• User ID : `{r['user_id']}`\n"
-            f"• Amount  : *{r['amount']:.2f} BDT*\n"
-            f"• Method  : {r['method'].upper()}\n"
-            f"• Proof   : `{r['proof']}`"
+            f"{EMOJI['bell']} <b>PENDING DEPOSIT #{r['id']}</b>\n"
+            f"<b>━━━━━━━━━━━━━━━━━━━━</b>\n"
+            f"• <b>User ID:</b> <code>{r['user_id']}</code>\n"
+            f"• <b>Amount:</b> <b>{r['amount']:.2f} BDT</b>\n"
+            f"• <b>Gateway:</b> {r['method'].upper()}\n"
+            f"• <b>Proof:</b> <code>{r['proof']}</code>\n"
+            f"<b>━━━━━━━━━━━━━━━━━━━━</b>"
         )
         if r["photo_id"]:
-            await context.bot.send_photo(chat_id=update.effective_user.id, photo=r["photo_id"], caption=card, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
+            await context.bot.send_photo(chat_id=update.effective_user.id, photo=r["photo_id"], caption=card, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
         else:
-            await update.message.reply_text(card, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
+            await update.message.reply_text(card, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
 
 async def handle_deposit_decide(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -1239,24 +1286,32 @@ async def handle_deposit_decide(update: Update, context: ContextTypes.DEFAULT_TY
         conn.commit()
         conn.close()
         try:
-            await context.bot.send_message(chat_id=r["user_id"], text=f"✅ *Deposit Approved!*\nAmount: *{r['amount']:.0f} BDT*", parse_mode="Markdown")
+            await context.bot.send_message(
+                chat_id=r["user_id"],
+                text=f"{EMOJI['verified']} <b>Deposit Approved!</b>\nAmount: <b>{r['amount']:.0f} BDT</b> has been added to your balance.",
+                parse_mode="HTML"
+            )
         except Exception:
             pass
-        msg = f"✅ Approved {r['amount']} BDT for `{r['user_id']}`"
+        msg = f"{EMOJI['verified']} Approved {r['amount']} BDT for <code>{r['user_id']}</code>"
     else:
         c.execute("UPDATE deposit_requests SET status='rejected' WHERE id=?", (req_id,))
         conn.commit()
         conn.close()
         try:
-            await context.bot.send_message(chat_id=r["user_id"], text=f"❌ Deposit request of {r['amount']} BDT was rejected.")
+            await context.bot.send_message(
+                chat_id=r["user_id"],
+                text=f"{EMOJI['cross']} <b>Deposit Rejected!</b>\nYour request for {r['amount']:.0f} BDT was declined.",
+                parse_mode="HTML"
+            )
         except Exception:
             pass
-        msg = f"❌ Rejected deposit for `{r['user_id']}`"
+        msg = f"{EMOJI['cross']} Rejected deposit for <code>{r['user_id']}</code>"
 
     if query.message.photo:
-        await query.edit_message_caption(caption=msg)
+        await query.edit_message_caption(caption=msg, parse_mode="HTML")
     else:
-        await query.edit_message_text(msg)
+        await query.edit_message_text(msg, parse_mode="HTML")
 
 async def deposit_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
@@ -1268,12 +1323,41 @@ async def deposit_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn.close()
 
     if not history:
-        await update.message.reply_text("হিস্ট্রিতে কোনো তথ্য নেই।")
+        await update.message.reply_text(f"{EMOJI['box']} কোনো ট্রানজেকশন হিস্ট্রি নেই।", parse_mode="HTML")
         return
-    msg = "⚙️ *Recent Deposit History:*\n━━━━━━━━━━━━━━━━━━━━\n"
+    msg = f"{EMOJI['card']} <b>RECENT DEPOSIT LOGS</b>\n<b>━━━━━━━━━━━━━━━━━━━━</b>\n"
     for h in history:
-        msg += f"• `{h['user_id']}` | `{h['amount']} BDT` | {h['method'].upper()} | `{h['status'].upper()}`\n"
-    await update.message.reply_text(msg, parse_mode="Markdown")
+        msg += f"• <code>{h['user_id']}</code> | <b>{h['amount']} BDT</b> | {h['method'].upper()} | <code>{h['status'].upper()}</code>\n"
+    await update.message.reply_text(msg, parse_mode="HTML")
+
+# --- FIREBASE SETUP ---
+async def ask_firebase_json(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        return ConversationHandler.END
+    await update.message.reply_text(f"{EMOJI['gear']} আপনার Firebase-এর <code>.json</code> ফাইলটি সেন্ড করুন (অথবা /cancel):", parse_mode="HTML")
+    return UPLOAD_FIREBASE
+
+async def save_firebase_json(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    doc = update.message.document
+    if not doc or not doc.file_name.endswith(".json"):
+        await update.message.reply_text(f"{EMOJI['cross']} ভ্যালিড JSON ফাইল নয়! আবার পাঠান:", parse_mode="HTML")
+        return UPLOAD_FIREBASE
+
+    file = await doc.get_file()
+    file_bytes = await file.download_as_bytearray()
+    try:
+        json.loads(file_bytes.decode("utf-8"))
+        with open(LOCAL_KEY_PATH, "wb") as f:
+            f.write(file_bytes)
+
+        if try_connect_firebase():
+            await update.message.reply_text(f"{EMOJI['verified']} <b>Firebase Integration Active!</b>", parse_mode="HTML", reply_markup=get_admin_menu())
+        else:
+            await update.message.reply_text("⚠️ ফাইল সংরক্ষিত হয়েছে তবে রিফ্রেশ ব্যর্থ হয়েছে।")
+    except Exception as e:
+        await update.message.reply_text(f"{EMOJI['cross']} ত্রুটি: <code>{e}</code>", parse_mode="HTML")
+
+    return ConversationHandler.END
 
 # --- CANCEL & NOOP ---
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1283,7 +1367,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text("❌ Action canceled.")
+    await query.edit_message_text(f"{EMOJI['cross']} Action canceled.", parse_mode="HTML")
 
 async def noop_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.answer()
@@ -1294,7 +1378,7 @@ def main():
 
     # ১. Setup Firebase
     app.add_handler(ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex("^⚙️ Setup Firebase$"), ask_firebase_json)],
+        entry_points=[MessageHandler(filters.Regex("^⚙️ Cloud Integration$"), ask_firebase_json)],
         states={UPLOAD_FIREBASE: [MessageHandler(filters.Document.ALL, save_firebase_json)]},
         fallbacks=[CommandHandler("cancel", cancel), MessageHandler(filters.Regex(MENU_BUTTON_REGEX), cancel)],
     ))
@@ -1308,7 +1392,7 @@ def main():
 
     # ৩. Deposit
     app.add_handler(ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex("^💳 Deposit$"), user_deposit_start)],
+        entry_points=[MessageHandler(filters.Regex("^💳 Deposit Balance$"), user_deposit_start)],
         states={
             DEPOSIT_AMOUNT: [
                 CallbackQueryHandler(deposit_method_picked, pattern=r"^paymeth_"),
@@ -1323,7 +1407,7 @@ def main():
         ],
     ))
 
-    # ৪. Product Management (Add / Price)
+    # ৪. Product Management
     app.add_handler(ConversationHandler(
         entry_points=[
             CallbackQueryHandler(handle_prodman_actions, pattern=r"^prodman_add$"),
@@ -1340,21 +1424,21 @@ def main():
 
     # ৫. Broadcast
     app.add_handler(ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex("^📢 Broadcast$"), start_broadcast)],
+        entry_points=[MessageHandler(filters.Regex("^📢 Announce Broadcast$"), start_broadcast)],
         states={BROADCAST_RECEIVE: [MessageHandler((filters.TEXT | filters.VOICE | filters.PHOTO) & ~filters.COMMAND & ~filters.Regex(MENU_BUTTON_REGEX), execute_broadcast)]},
         fallbacks=[CommandHandler("cancel", cancel), MessageHandler(filters.Regex(MENU_BUTTON_REGEX), cancel)],
     ))
 
     # ৬. Voucher Redeem
     app.add_handler(ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex("^🏷️ Get Code$"), get_code_prompt)],
+        entry_points=[MessageHandler(filters.Regex("^🏷️ Redeem Voucher$"), get_code_prompt)],
         states={REDEEM_VOUCHER: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex(MENU_BUTTON_REGEX), redeem_code)]},
         fallbacks=[CommandHandler("cancel", cancel), MessageHandler(filters.Regex(MENU_BUTTON_REGEX), cancel)],
     ))
 
-    # ৭. Voucher Create
+    # ৭. Voucher Studio
     app.add_handler(ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex("^🏷️ Voucher Management$"), voucher_management)],
+        entry_points=[MessageHandler(filters.Regex("^🏷️ Voucher Studio$"), voucher_management)],
         states={
             ADD_VOUCHER_CODE: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex(MENU_BUTTON_REGEX), get_v_code)],
             ADD_VOUCHER_BAL: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex(MENU_BUTTON_REGEX), get_v_bal)]
@@ -1365,7 +1449,7 @@ def main():
     # ৮. User Management
     app.add_handler(ConversationHandler(
         entry_points=[
-            MessageHandler(filters.Regex("^👥 User Management$"), user_management),
+            MessageHandler(filters.Regex("^👥 Customer Hub$"), user_management),
             CallbackQueryHandler(user_actions_callback, pattern=r"^uact_(add|cut|msg)_")
         ],
         states={
@@ -1390,43 +1474,37 @@ def main():
         fallbacks=[CommandHandler("cancel", cancel), MessageHandler(filters.Regex(MENU_BUTTON_REGEX), cancel)],
     ))
 
-    # ১১. Reseller, Support, Tutorial, Force Join
+    # ১১. Reseller, Support, Channels
     app.add_handler(ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex("^🤝 Reseller Management$"), reseller_management)],
+        entry_points=[MessageHandler(filters.Regex("^🤝 Reseller Suite$"), reseller_management)],
         states={RESELLER_UID: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex(MENU_BUTTON_REGEX), save_reseller_toggle)]},
         fallbacks=[CommandHandler("cancel", cancel), MessageHandler(filters.Regex(MENU_BUTTON_REGEX), cancel)],
     ))
     app.add_handler(ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex("^🛠️ Support Setup$"), prompt_support_setup)],
+        entry_points=[MessageHandler(filters.Regex("^🛠️ System Channels$"), prompt_support_setup)],
         states={SETUP_SUPPORT: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex(MENU_BUTTON_REGEX), save_support_setup)]},
         fallbacks=[CommandHandler("cancel", cancel), MessageHandler(filters.Regex(MENU_BUTTON_REGEX), cancel)],
     ))
     app.add_handler(ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex("^📽️ Tutorial Setup$"), prompt_tutorial_setup)],
+        entry_points=[MessageHandler(filters.Regex("^👑 Tutorial Guide$"), prompt_tutorial_setup)],
         states={SETUP_TUTORIAL: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex(MENU_BUTTON_REGEX), save_tutorial_setup)]},
         fallbacks=[CommandHandler("cancel", cancel), MessageHandler(filters.Regex(MENU_BUTTON_REGEX), cancel)],
     ))
-    app.add_handler(ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex("^👑 Force Join Setup$"), prompt_force_join)],
-        states={SETUP_FORCE_JOIN: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex(MENU_BUTTON_REGEX), save_force_join)]},
-        fallbacks=[CommandHandler("cancel", cancel), MessageHandler(filters.Regex(MENU_BUTTON_REGEX), cancel)],
-    ))
 
-    # মূল মেনু হ্যান্ডলারসমূহ
+    # মূল মেনু হ্যান্ডলার
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.Regex("^🛍️ Buy Product$"), buy_products_menu))
-    app.add_handler(MessageHandler(filters.Regex("^👤 My Profile$"), my_profile))
-    app.add_handler(MessageHandler(filters.Regex("^💬 Support$"), user_support))
-    app.add_handler(MessageHandler(filters.Regex("^👑 Tutorial$"), user_tutorial))
-    app.add_handler(MessageHandler(filters.Regex("^👑 Admin Panel$"), admin_panel))
-    app.add_handler(MessageHandler(filters.Regex("^💼 Product Management$"), product_management_menu))
-    app.add_handler(MessageHandler(filters.Regex("^📊 Live Stock$"), live_stock))
-    app.add_handler(MessageHandler(filters.Regex("^📦 Add Stock$"), add_stock_menu))
-    app.add_handler(MessageHandler(filters.Regex("^🔔 Deposit Requests$"), show_deposit_requests))
-    app.add_handler(MessageHandler(filters.Regex("^📜 Deposit History$"), deposit_history))
-    app.add_handler(MessageHandler(filters.Regex("^💳 Payment Settings$"), payment_settings))
-    app.add_handler(MessageHandler(filters.Regex("^🔑 Admin Management$"), admin_management_menu))
-    app.add_handler(MessageHandler(filters.Regex("^(🔙 User Menu|✅ User Menu)$"), start))
+    app.add_handler(MessageHandler(filters.Regex("^🛍️ Market Store$"), buy_products_menu))
+    app.add_handler(MessageHandler(filters.Regex("^👤 My Account$"), my_profile))
+    app.add_handler(MessageHandler(filters.Regex("^💬 24/7 Support$"), user_support))
+    app.add_handler(MessageHandler(filters.Regex("^👑 Tutorial Guide$"), user_tutorial))
+    app.add_handler(MessageHandler(filters.Regex("^⚡ Admin Control$"), admin_panel))
+    app.add_handler(MessageHandler(filters.Regex("^📦 Stock Center$"), product_management_menu))
+    app.add_handler(MessageHandler(filters.Regex("^📊 Inventory Matrix$"), live_stock))
+    app.add_handler(MessageHandler(filters.Regex("^🔔 Deposit Approvals$"), show_deposit_requests))
+    app.add_handler(MessageHandler(filters.Regex("^📜 Transaction Logs$"), deposit_history))
+    app.add_handler(MessageHandler(filters.Regex("^💳 Gateway Setup$"), payment_settings))
+    app.add_handler(MessageHandler(filters.Regex("^🔑 Admin Delegation$"), admin_management_menu))
+    app.add_handler(MessageHandler(filters.Regex("^🔙 Main Menu$"), start))
 
     # ইনলাইন বাটন কলব্যাকস
     app.add_handler(CallbackQueryHandler(buy_products_menu, pattern=r"^back_to_cats$"))
@@ -1443,7 +1521,7 @@ def main():
     app.add_handler(CallbackQueryHandler(del_admin_cb, pattern=r"^deladm_"))
     app.add_handler(CallbackQueryHandler(handle_admin_manage_cb, pattern=r"^admin_del$"))
 
-    logging.info("Bot polling is active...")
+    logging.info("Bot polling is active with Premium HTML Engine...")
     app.run_polling()
 
 if __name__ == "__main__":
