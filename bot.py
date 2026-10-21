@@ -59,7 +59,7 @@ logging.basicConfig(
 )
 
 # --- PREMIUM CUSTOM EMOJI CONFIGURATION ---
-# আপনার পছন্দের টেলিগ্রাম প্রিমিয়াম ইমোজি আইডিগুলো নিচে বসিয়ে দিন
+# টেলিগ্রাম প্রিমিয়াম কাস্টম ইমোজির আইডিগুলো এখানে বসান
 EMOJI = {
     "sparkles": '<tg-emoji emoji-id="5368324170671202286">✨</tg-emoji>',
     "cart": '<tg-emoji emoji-id="5427168097561845112">🛒</tg-emoji>',
